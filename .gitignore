@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+promptbench.lock
+credentials.key
+promptbench
+.DS_Store
+ui-check/

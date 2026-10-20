@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Promptbench · Prompt 调试工作台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主内容</a>
+
+<header class="app-header">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 3h6M10 3v5.2L4.9 18a2.4 2.4 0 0 0 2.1 3.4h10a2.4 2.4 0 0 0 2.1-3.4L14 8.2V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M7.2 15h9.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <span class="brand-name">PROMPTBENCH</span>
+  </div>
+  <div class="crumb" id="crumb">本地 Prompt 调试</div>
+  <div class="header-right">
+    <button type="button" class="btn tiny header-save" id="global-save-btn" title="保存整个草稿状态">保存草稿</button>
+    <span class="conn" id="conn-status"><span class="dot" aria-hidden="true"></span><span id="conn-text">连接中…</span></span>
+    <span class="version" id="state-version" title="服务端状态版本"></span>
+  </div>
+</header>
+
+<div class="app-shell">
+  <aside class="sidebar" aria-label="侧栏">
+    <nav class="nav-list" aria-label="页面导航">
+      <button type="button" class="nav-item" data-view="workbench">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14M3 10h14M3 15.5h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        实验项目
+      </button>
+      <button type="button" class="nav-item" data-view="history">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5h8M5 6.5h10M4 9.5h12M4 12.5h12M5 15.5h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        运行记录
+      </button>
+      <button type="button" class="nav-item" data-view="providers">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="6" r="1.8" fill="currentColor"/><circle cx="13" cy="10" r="1.8" fill="currentColor"/><circle cx="9" cy="14" r="1.8" fill="currentColor"/></svg>
+        Provider 管理
+      </button>
+      <button type="button" class="nav-item" data-view="settings">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        全局设置
+      </button>
+    </nav>
+
+    <section class="side-section" id="case-section" aria-labelledby="case-section-title">
+      <div class="side-head">
+        <h2 id="case-section-title">案例列表 <span class="count" id="case-count">0 / 0</span></h2>
+        <button type="button" class="link-btn" id="new-case-btn">＋ 新建 case</button>
+      </div>
+      <p class="side-hint">勾选=参与本次运行；点击名称=编辑</p>
+      <div class="case-list" id="case-list"></div>
+    </section>
+
+    <section class="side-section side-recent" aria-labelledby="recent-title">
+      <div class="side-head">
+        <h2 id="recent-title">最近运行</h2>
+        <button type="button" class="link-btn" id="refresh-runs-btn">刷新</button>
+      </div>
+      <div class="recent-runs" id="recent-runs"></div>
+    </section>
+  </aside>
+
+  <main id="main" class="main">
+    <div class="global-banner" id="global-banner" hidden>
+      <div class="banner-text" id="global-banner-text" role="alert"></div>
+      <div class="banner-actions">
+        <button type="button" class="btn tiny" id="banner-reload-btn" hidden>重新载入最新状态</button>
+        <button type="button" class="btn tiny" id="banner-close-btn">关闭</button>
+      </div>
+    </div>
+
+    <section class="view" id="view-workbench" aria-labelledby="workbench-title">
+      <div class="workbench-toolbar">
+        <div class="toolbar-title">
+          <h1 id="workbench-title" class="page-title">Prompt 调试</h1>
+          <div class="save-line">
+            <span class="save-state" id="save-state">正在载入…</span>
+            <span class="muted-sep" aria-hidden="true">·</span>
+            <span class="muted" id="draft-meta">本地草稿</span>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <div class="draft-name-wrap">
+            <label class="sr-only" for="draft-name">草稿名称</label>
+            <input id="draft-name" class="input draft-name" type="text" autocomplete="off" placeholder="草稿名称">
+          </div>
+          <button type="button" class="btn" id="save-btn">保存草稿</button>
+          <button type="button" class="btn primary run-btn" id="run-btn" title="保存草稿并以当前选择启动批次">
+            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 4.5v11l9-5.5z" fill="currentColor"/></svg>
+            <span id="run-btn-label">运行</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="workspace-grid">
+        <div class="center-col">
+          <section class="card editor-card" aria-labelledby="editor-title">
+            <div class="card-head editor-head">
+              <div class="editor-title-row">
+                <h2 id="editor-title" class="card-title">模板与变量</h2>
+                <label class="sr-only" for="template-select">当前模板</label>
+                <select class="input select" id="template-select"></select>
+                <label class="sr-only" for="template-name">模板名称</label>
+                <input class="input template-name" id="template-name" type="text" autocomplete="off" placeholder="模板名称">
+                <span class="mono muted template-id" id="template-id"></span>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="btn tiny" id="new-template-btn">新建模板</button>
+                <button type="button" class="btn tiny" id="dup-template-btn">复制</button>
+                <button type="button" class="btn tiny danger-text" id="del-template-btn">删除</button>
+              </div>
+            </div>
+
+            <div class="filetab-bar">
+              <div class="filetabs" role="tablist" aria-label="编辑器内容">
+                <button type="button" class="filetab" role="tab" id="tab-template" data-editor-tab="template" aria-controls="editor-template-panel" aria-selected="true">模板消息</button>
+                <button type="button" class="filetab" role="tab" id="tab-variables" data-editor-tab="variables" aria-controls="editor-variables-panel" aria-selected="false">case.variables.json</button>
+              </div>
+              <div class="editor-tools">
+                <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
+                <details class="menu" id="insert-var-menu">
+                  <summary class="btn tiny">插入变量</summary>
+                  <div class="menu-panel" id="insert-var-list"></div>
+                </details>
+                <span class="muted small" id="editor-context-label"></span>
+              </div>
+            </div>
+
+            <div class="editor-error" id="editor-render-error" role="alert" hidden></div>
+
+            <div class="editor-panel" id="editor-template-panel" role="tabpanel" aria-labelledby="tab-template">
+              <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
+              <div class="message-editor">
+                <label class="sr-only" for="message-content">消息内容</label>
+                <textarea id="message-content" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+                <div class="editor-status">
+                  <label class="inline-field" for="message-role">角色
+                    <select id="message-role" class="input select compact">
+                      <option value="system">system · 系统</option>
+                      <option value="developer">developer · 开发者</option>
+                      <option value="user">user · 用户</option>
+                      <option value="assistant">assistant · 助手</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn tiny" id="add-message-btn">＋ 消息</button>
+                  <button type="button" class="btn tiny danger-text" id="del-message-btn">删除消息</button>
+                  <span class="status-spacer"></span>
+                  <span class="muted small" id="message-lineinfo">行 1，列 1</span>
+                  <span class="muted small">UTF-8</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-panel" id="editor-variables-panel" role="tabpanel" aria-labelledby="tab-variables" hidden>
+              <div class="variable-help">
+                <span class="variable-help-label">常用字段</span>
+                <div class="chips" id="variable-chips"></div>
+                <span class="muted small">JSON 对象原样保存；可添加任意字段。</span>
+              </div>
+              <label class="sr-only" for="variables-json">案例输入变量 JSON</label>
+              <textarea id="variables-json" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+              <div class="field-error" id="variables-error" role="alert"></div>
+              <div class="editor-status">
+                <span class="muted small">变量仅随草稿保存，不会作为密钥处理。</span>
+                <span class="status-spacer"></span>
+                <span class="muted small" id="var-lineinfo">行 1，列 1</span>
+                <button type="button" class="btn tiny" id="format-vars-btn">格式化 JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card groups-card" aria-labelledby="groups-title">
+            <div class="card-head">
+              <div class="title-line">
+                <h2 class="card-title" id="groups-title">对照组配置</h2>
+                <span class="pill" id="group-enabled-count">0 个已启用</span>
+              </div>
+              <button type="button" class="btn tiny" id="add-group-btn">＋ 添加配置</button>
+            </div>
+            <div class="table-wrap">
+              <table class="config-table">
+                <thead>
+                  <tr>
+                    <th scope="col">启用</th>
+                    <th scope="col">名称</th>
+                    <th scope="col">模板</th>
+                    <th scope="col">模型</th>
+                    <th scope="col">Provider</th>
+                    <th scope="col">温度</th>
+                    <th scope="col">思考强度</th>
+                    <th scope="col" class="num">每 case 次数</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="groups-body"></tbody>
+              </table>
+            </div>
+            <div class="groups-foot">
+              <div class="run-validation" id="run-validation" aria-live="polite"></div>
+              <div class="total-line" id="total-line">选择案例并启用配置后开始运行</div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="right-col" aria-label="运行配置与请求预览">
+          <section class="card config-card" aria-labelledby="cfg-title">
+            <div class="card-head compact-head">
+              <h2 class="card-title" id="cfg-title">运行配置</h2>
+              <button type="button" class="icon-btn" id="cfg-toggle" aria-expanded="true" aria-controls="cfg-body" title="折叠运行配置">
+                <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 12.5 10 7l5 5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <div id="cfg-body" class="config-body">
+              <label class="field">
+                <span>对照配置</span>
+                <select class="input select" id="cfg-group-select"></select>
+              </label>
+              <div class="two-col">
+                <label class="field">
+                  <span>Provider</span>
+                  <select class="input select" id="cfg-provider"></select>
+                </label>
+                <label class="field">
+                  <span>模型</span>
+                  <input class="input mono" id="cfg-model" type="text" list="model-suggestions" autocomplete="off" placeholder="模型 ID">
+                  <datalist id="model-suggestions"></datalist>
+                </label>
+              </div>
+              <p class="provider-hint" id="cfg-provider-hint"></p>
+              <div class="field">
+                <span>温度 Temperature</span>
+                <div class="param-row">
+                  <select class="input select compact" id="cfg-temp-mode" aria-label="温度参数处理方式">
+                    <option value="omit">未发送</option>
+                    <option value="value">数值</option>
+                    <option value="null">null</option>
+                  </select>
+                  <input class="input compact num-input" id="cfg-temp-value" type="number" step="0.1" aria-label="温度数值">
+                </div>
+              </div>
+              <div class="field">
+                <span>思考强度 Reasoning effort</span>
+                <div class="param-row">
+                  <select class="input select compact" id="cfg-reasoning-mode" aria-label="思考强度处理方式">
+                    <option value="omit">未发送</option>
+                    <option value="null">null</option>
+                    <option value="none">none</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="custom" disabled>其他（见高级 JSON）</option>
+                  </select>
+                </div>
+              </div>
+              <button type="button" class="btn tiny full" id="edit-group-btn">编辑完整参数（高级 JSON）</button>
+              <p class="footnote">未发送 ≠ null；次数在对照表中编辑，并发见全局设置（硬上限 20，同时仅 1 个批次）。</p>
+            </div>
+          </section>
+
+          <section class="card preview-card" aria-labelledby="preview-title">
+            <div class="card-head compact-head">
+              <div class="title-line">
+                <h2 class="card-title" id="preview-title">实际请求预览</h2>
+                <span class="pill subtle" id="preview-state">未预览</span>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="btn tiny" id="refresh-preview-btn">刷新预览</button>
+                <button type="button" class="btn tiny" id="copy-preview-btn">复制</button>
+              </div>
+            </div>
+            <div class="preview-meta">
+              <div><span class="preview-label">Protocol</span><span class="mono preview-value" id="preview-protocol">—</span></div>
+              <div><span class="preview-label">Request</span><span class="mono preview-value" id="preview-endpoint">—</span></div>
+              <div><span class="preview-label">Prompt hash</span><span class="mono preview-value" id="preview-hash">—</span></div>
+            </div>
+            <details class="preview-extra" id="preview-extra" hidden>
+              <summary>非认证请求头与原始发送正文</summary>
+              <div class="preview-extra-body">
+                <div class="raw-block"><h4>Headers（无认证头）</h4><pre id="preview-headers"></pre></div>
+                <div class="raw-block"><h4>raw_request（精确字节）</h4><pre id="preview-raw-request"></pre></div>
+              </div>
+            </details>
+            <div class="field-error" id="preview-error" role="alert"></div>
+            <pre class="code-block preview-block" id="preview-body" tabindex="0" aria-label="实际请求 JSON">选择案例与对照配置后点击“刷新预览”。</pre>
+          </section>
+        </aside>
+      </div>
+
+      <section class="card output-card" aria-labelledby="output-title">
+        <div class="output-head">
+          <div class="filetabs" role="tablist" aria-label="输出面板">
+            <button type="button" class="filetab" role="tab" id="out-tab-results" data-output-tab="results" aria-selected="true">运行输出</button>
+            <button type="button" class="filetab" role="tab" id="out-tab-snapshot" data-output-tab="snapshot" aria-selected="false">批次快照</button>
+          </div>
+          <div class="progress-box">
+            <span class="progress-label" id="run-status-label">尚无运行</span>
+            <div class="progress-track" id="progress-track" role="progressbar" aria-label="批次进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <span class="mono small" id="progress-text">0 / 0</span>
+            <button type="button" class="btn tiny danger" id="stop-btn" hidden>
+              <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1" fill="currentColor"/></svg>
+              停止运行
+            </button>
+          </div>
+        </div>
+        <div class="output-toolbar" id="output-toolbar">
+          <label class="inline-field" for="filter-group">组
+            <select class="input select compact" id="filter-group"><option value="">全部</option></select>
+          </label>
+          <label class="inline-field" for="filter-case">Case
+            <select class="input select compact" id="filter-case"><option value="">全部</option></select>
+          </label>
+          <label class="inline-field" for="filter-status">状态
+            <select class="input select compact" id="filter-status">
+              <option value="">全部</option>
+              <option value="completed">成功</option>
+              <option value="running">运行中</option>
+              <option value="pending">待运行</option>
+              <option value="failed">失败</option>
+              <option value="cancelled">已取消</option>
+              <option value="interrupted">结果未知</option>
+            </select>
+          </label>
+          <span class="muted small" id="result-count"></span>
+          <span class="status-spacer"></span>
+          <span class="muted small" id="batch-meta"></span>
+          <button type="button" class="btn tiny" id="reload-run-btn">刷新</button>
+        </div>
+        <div id="output-results-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-results">
+          <div class="empty-state" id="output-empty">尚未运行。选择案例和对照配置后点击“运行”。</div>
+          <div class="result-list" id="result-list"></div>
+        </div>
+        <div id="output-snapshot-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-snapshot" hidden>
+          <div class="empty-state" id="output-snapshot-empty">载入批次后可查看冻结快照。</div>
+          <div id="output-snapshot"></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="view-history" aria-labelledby="history-title" hidden>
+      <div class="workbench-toolbar">
+        <div class="toolbar-title">
+          <h1 id="history-title" class="page-title">运行记录</h1>
+          <div class="save-line"><span class="muted" id="history-meta">持久化批次历史</span></div>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn" id="history-refresh-btn">刷新历史</button>
+        </div>
+      </div>
+      <div id="history-list-view" class="history-layout">
+        <section class="card history-list-card" aria-labelledby="history-list-title">
+          <div class="card-head">
+            <div class="title-line">
+              <h2 class="card-title" id="history-list-title">所有批次</h2>
+              <span class="pill" id="history-count">0</span>
+            </div>
+            <button type="button" class="btn tiny primary" id="compare-btn" disabled>对比选中</button>
+          </div>
+          <p class="card-hint">勾选 2–6 个批次进行并排对比；点击批次查看快照与结果。</p>
+          <div class="run-list" id="history-run-list"></div>
+        </section>
+        <section class="card history-detail-card" aria-labelledby="history-detail-title">
+          <div class="empty-state" id="history-detail-empty">选择一个批次查看详情。</div>
+          <div id="history-detail" hidden></div>
+        </section>
+      </div>
+      <div id="compare-view" class="card compare-card" hidden>
+        <div class="card-head">
+          <div class="title-line">
+            <h2 class="card-title">历史批次并排对比</h2>
+            <span class="pill" id="compare-count"></span>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn tiny" id="compare-back-btn">返回历史</button>
+          </div>
+        </div>
+        <p class="card-hint">按 case × 配置展示冻结请求参数与每次输出；仅呈现原始结果，不做质量评分。</p>
+        <div id="compare-body"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-providers" aria-labelledby="providers-title" hidden>
+      <div class="workbench-toolbar">
+        <div class="toolbar-title">
+          <h1 id="providers-title" class="page-title">Provider 管理</h1>
+          <div class="save-line"><span class="muted">协议类型由服务端目录提供；手动密钥仅提交到本机后端并加密保存，留空则使用环境变量回退。</span></div>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn primary" id="add-provider-btn">＋ 添加 Provider</button>
+        </div>
+      </div>
+      <div class="catalog-note" id="provider-catalog-note" role="alert" hidden></div>
+      <section class="card">
+        <div class="card-head"><h2 class="card-title">Providers</h2><span class="pill" id="provider-count">0</span></div>
+        <div class="table-wrap">
+          <table class="data-table provider-table">
+            <thead><tr><th scope="col">名称</th><th scope="col">协议 / 类型</th><th scope="col">Base URL</th><th scope="col">凭据状态</th><th scope="col">操作</th></tr></thead>
+            <tbody id="providers-body"></tbody>
+          </table>
+        </div>
+        <div class="groups-foot"><p class="footnote">凭据优先级：手动密钥 → 环境变量 → 无认证（仅当协议允许）。手动密钥由后端加密保存在本机数据目录；备份数据库时需一并备份 <span class="mono">credentials.key</span>。密钥不会进入浏览器存储、草稿 JSON、历史请求/响应、快照或导出。</p></div>
+      </section>
+    </section>
+
+    <section class="view" id="view-settings" aria-labelledby="settings-title" hidden>
+      <div class="workbench-toolbar">
+        <div class="toolbar-title">
+          <h1 id="settings-title" class="page-title">全局设置</h1>
+          <div class="save-line"><span class="muted">随草稿保存，作用于新配置与新批次。</span></div>
+        </div>
+        <div class="toolbar-actions"><button type="button" class="btn primary" id="settings-save-btn">保存设置</button></div>
+      </div>
+      <section class="card settings-card">
+        <div class="settings-grid">
+          <label class="field">
+            <span>默认每 case 次数</span>
+            <input class="input" id="setting-default-runs" type="number" min="1" max="1000" step="1">
+            <small>新建对照组时的初始次数（1–1000）。</small>
+          </label>
+          <label class="field">
+            <span>全局并发上限</span>
+            <input class="input" id="setting-concurrency" type="number" min="1" max="20" step="1">
+            <small>新批次默认并发，且不得超过服务端硬上限 20。</small>
+          </label>
+          <label class="field">
+            <span>请求超时（秒）</span>
+            <input class="input" id="setting-timeout" type="number" min="1" max="3600" step="1">
+            <small>每次上游请求的超时时间（1–3600 秒）。</small>
+          </label>
+        </div>
+        <p class="field-error" id="settings-error" role="alert"></p>
+        <div class="settings-note">
+          <h3>运行语义</h3>
+          <ul>
+            <li>同一时间只允许一个批次运行；批次内的多个对照组交错派发，共享并发上限。</li>
+            <li>批次启动时冻结 case、模板、参数与渲染请求；之后保存草稿不会改变已启动批次。</li>
+            <li>停止后不再派发新请求，在途请求会完成并保留结果；刷新页面不会停止批次。</li>
+            <li>无自动重试。失败会保留原始错误，结果未知（interrupted）不会被当作成功。</li>
+          </ul>
+        </div>
+      </section>
+    </section>
+  </main>
+</div>
+
+<div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="false"></div>
+
+<dialog class="modal" id="case-dialog" aria-labelledby="case-dialog-title">
+  <form method="dialog" id="case-form" novalidate>
+    <div class="modal-head">
+      <h2 id="case-dialog-title">新建 case</h2>
+      <button type="button" class="icon-btn" data-close-dialog="case-dialog" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>Case ID</span><input class="input mono" id="case-id" type="text" autocomplete="off" spellcheck="false" placeholder="water_ecology"><small>唯一标识，创建后不可修改；用于运行选择与历史。</small></label>
+      <label class="field"><span>名称</span><input class="input" id="case-name" type="text" autocomplete="off" placeholder="水生态治理"></label>
+      <label class="field"><span>描述（可选）</span><input class="input" id="case-desc" type="text" autocomplete="off"></label>
+      <label class="field"><span>变量 JSON</span><textarea class="code-input" id="case-variables" spellcheck="false"></textarea><small>任意 JSON 对象；由 Go 模板读取，前端不做模板渲染。</small></label>
+      <label class="check-row" id="case-select-row"><input type="checkbox" id="case-add-selection"> 同时加入本次运行选择</label>
+      <p class="field-error" id="case-error" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <div class="btn-row" id="case-foot-actions">
+        <button type="button" class="btn tiny" id="case-duplicate-btn" hidden>复制为新 case</button>
+        <button type="button" class="btn tiny danger-text" id="case-delete-btn" hidden>删除 case</button>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn" data-close-dialog="case-dialog">取消</button>
+        <button type="submit" class="btn primary" id="case-submit">保存 case</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal wide" id="group-dialog" aria-labelledby="group-dialog-title">
+  <form method="dialog" id="group-form" novalidate>
+    <div class="modal-head">
+      <h2 id="group-dialog-title">添加对照配置</h2>
+      <button type="button" class="icon-btn" data-close-dialog="group-dialog" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <label class="field"><span>名称</span><input class="input" id="group-name" type="text" autocomplete="off" placeholder="对照 A"></label>
+        <label class="field"><span>每 case 次数</span><input class="input" id="group-runs" type="number" min="1" max="1000" step="1"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" id="group-enabled"> 启用该配置</label>
+      <div class="form-grid">
+        <label class="field"><span>模板</span><select class="input select" id="group-template"></select></label>
+        <label class="field"><span>Provider</span><select class="input select" id="group-provider"></select></label>
+      </div>
+      <label class="field"><span>模型 ID（自由输入，不使用硬编码允许列表）</span><input class="input mono" id="group-model" type="text" list="model-suggestions" autocomplete="off"></label>
+      <div class="form-grid">
+        <div class="field"><span>温度</span>
+          <div class="param-row">
+            <select class="input select compact" id="group-temp-mode" aria-label="温度参数处理方式">
+              <option value="omit">未发送</option><option value="value">数值</option><option value="null">null</option>
+            </select>
+            <input class="input compact num-input" id="group-temp-value" type="number" step="0.1" aria-label="温度数值">
+          </div>
+        </div>
+        <div class="field"><span>思考强度</span>
+          <div class="param-row">
+            <select class="input select compact" id="group-reasoning-mode" aria-label="思考强度处理方式">
+              <option value="omit">未发送</option><option value="null">null</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="custom" disabled>其他（见高级 JSON）</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <label class="field"><span>高级参数 JSON</span>
+        <textarea class="code-input params-input" id="group-params" spellcheck="false"></textarea>
+        <small>完整参数对象，保留任意未支持的字段；不能包含 model、messages、stream。上方温度/思考强度会同步到这里。</small>
+      </label>
+      <p class="field-error" id="group-error" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close-dialog="group-dialog">取消</button>
+      <button type="submit" class="btn primary">保存配置</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="provider-dialog" aria-labelledby="provider-dialog-title">
+  <form method="dialog" id="provider-form" novalidate>
+    <div class="modal-head">
+      <h2 id="provider-dialog-title">添加 Provider</h2>
+      <button type="button" class="icon-btn" data-close-dialog="provider-dialog" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>名称</span><input class="input" id="provider-name" type="text" autocomplete="off" placeholder="生产 Provider"></label>
+      <div class="form-grid">
+        <label class="field"><span>协议 / 类型</span><select class="input select" id="provider-type"></select></label>
+        <label class="field"><span>API Key 环境变量（回退）</span><input class="input mono" id="provider-env" type="text" autocomplete="off" spellcheck="false" placeholder="PROVIDER_API_KEY"><small>手动密钥不存在时使用；留空表示无环境变量回退。</small></label>
+      </div>
+      <p class="provider-type-hint" id="provider-type-hint"></p>
+      <label class="field"><span>Base URL</span><input class="input mono" id="provider-base" type="url" autocomplete="off" placeholder="https://example.com/v1"><small id="provider-base-hint">实际请求 endpoint 由所选协议和服务端生成。</small></label>
+      <div class="credential-box">
+        <div class="credential-head">
+          <span class="credential-title">手动 API Key</span>
+          <span class="pill subtle" id="provider-credential-status">载入中…</span>
+        </div>
+        <label class="field">
+          <span>只写密钥（不会回显已保存值）</span>
+          <input class="input mono" id="provider-api-key" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off" placeholder="留空不更换">
+          <small id="provider-secret-hint">留空表示不更改凭据；填写后保存即替换手动密钥。密钥只提交给本机后端。</small>
+        </label>
+        <div class="btn-row credential-actions">
+          <button type="button" class="btn tiny" id="provider-clear-key">清除手动密钥，改用环境变量</button>
+          <button type="button" class="btn tiny" id="provider-undo-credential" hidden>撤销未保存的凭据更改</button>
+        </div>
+        <p class="credential-note" id="provider-credential-note">优先级：手动密钥 → 环境变量 → 无认证（仅当协议允许）。手动密钥由后端加密保存在本机数据目录；备份数据库时需一并备份 credentials.key。密钥不会进入浏览器存储、草稿 JSON、历史请求、快照或导出。</p>
+      </div>
+      <p class="field-error" id="provider-error" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close-dialog="provider-dialog">取消</button>
+      <button type="submit" class="btn primary">保存 Provider</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="template-dialog" aria-labelledby="template-dialog-title">
+  <form method="dialog" id="template-form" novalidate>
+    <div class="modal-head">
+      <h2 id="template-dialog-title">新建模板</h2>
+      <button type="button" class="icon-btn" data-close-dialog="template-dialog" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>模板名称</span><input class="input" id="template-new-name" type="text" autocomplete="off" placeholder="新模板"><small>创建后包含一条空 user 消息，可在编辑器中增删角色。</small></label>
+      <p class="field-error" id="template-error" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close-dialog="template-dialog">取消</button>
+      <button type="submit" class="btn primary">创建模板</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js" defer></script>
+</body>
+</html>
