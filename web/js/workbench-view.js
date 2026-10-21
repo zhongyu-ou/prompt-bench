@@ -1,39 +1,8 @@
-import { $, currentTextOf, esc, shortId, sourceLanguageOf, uniqueId } from './utils.js';
-import { activeCase, credentialMeta, groupRouteSummary, isKnownProtocol, providerById, resolveGroupTargets, selectedCaseIds, templateById } from './model.js';
+import { $, esc, uniqueId } from './utils.js';
+import { credentialMeta, groupRouteSummary, isKnownProtocol, providerById, templateById } from './model.js';
 import { App } from './state.js';
 import { ICON_EDIT } from './constants.js';
 
-function renderWorkbenchCase() {
-  const idEl = $('wb-case-id');
-  const body = $('wb-case-body');
-  if (!idEl || !body) return;
-  const resolved = selectedCaseIds();
-  if (resolved.length && (!App.activeCaseId || !resolved.includes(App.activeCaseId))) {
-    App.activeCaseId = resolved[0];
-  }
-  const c = activeCase();
-  if (!c) {
-    idEl.textContent = '';
-    body.innerHTML = '<div class="empty-state">Case 库中还没有 Case。</div>';
-    return;
-  }
-  const inScope = resolved.includes(c.id);
-  idEl.textContent = shortId(c.id);
-  idEl.title = c.id;
-  const text = currentTextOf(c);
-  const source = sourceLanguageOf(c);
-  const groups = App.state.draft.groups.filter((g) => g.enabled);
-  const targetLines = groups.map((g) => {
-    const resolved = resolveGroupTargets(g, source);
-    const targets = resolved.targets.map((t) => t.key).join(', ');
-    return `<div class="case-target-line"><span class="case-target-group">${esc(g.name || g.id)}</span><span class="case-target-values">→ ${esc(targets || '—')}${resolved.usedDefault ? ' <span class="default-mark">默认</span>' : ''}</span></div>`;
-  }).join('');
-  body.innerHTML = `
-    <div class="case-preview-text">${esc(text || '（无 CurrentText）')}</div>
-    <div class="case-preview-meta">源语言：<span class="mono">${esc(source || '（未设置）')}</span>${inScope ? '' : ' · <span class="pill warn">范围外</span>'}</div>
-    ${targetLines || '<div class="muted small">没有启用的对照配置。</div>'}
-  `;
-}
 
 function groupRoutesHtml(group) {
   const parts = groupRouteSummary(group);
@@ -64,6 +33,7 @@ function renderGroupCards() {
         <button type="button" class="group-main" data-group-select="${esc(g.id)}">
           <span class="group-name">${esc(g.name || g.id)}${missing ? ' <span class="pill warn">待补全</span>' : ''}${credWarn ? ' <span class="pill warn">凭据不可用</span>' : ''}</span>
           <span class="group-meta">${esc(prov ? (prov.name || prov.id) : 'Provider 缺失')} · <span class="mono">${esc(g.model || '模型未填写')}</span> · 每 Case ${esc(String(g.runs))} 次</span>
+          <span class="group-template">模板：${esc(tpl ? (tpl.name || tpl.id) : '模板缺失')}</span>
           <span class="group-routes">${groupRoutesHtml(g)}</span>
         </button>
         <button type="button" class="btn tiny" data-group-edit="${esc(g.id)}">${ICON_EDIT}编辑</button>
@@ -98,4 +68,4 @@ function renderModelSuggestions() {
   datalist.innerHTML = [...models].sort().map((m) => `<option value="${esc(m)}"></option>`).join('');
 }
 
-export { nextGroupDefaults, renderGroupCards, renderModelSuggestions, renderWorkbenchCase };
+export { nextGroupDefaults, renderGroupCards, renderModelSuggestions };

@@ -7,7 +7,6 @@ import { ICON_EDIT, ICON_TRASH } from './constants.js';
 import { updateDirtyUI } from './shell-view.js';
 import { saveState } from './persistence.js';
 import { refreshRunPlan } from './run-plan.js';
-import { markPreviewStale } from './preview-state.js';
 import { toast } from './feedback.js';
 import { apiGet } from './api.js';
 
@@ -324,7 +323,6 @@ async function submitProviderDialog(event) {
   renderModelSuggestions();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('Provider 配置已修改');
   toast('Provider 已保存', 'ok');
 }
 
@@ -358,7 +356,6 @@ function deleteProvider(id) {
   renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('Provider 已删除');
   toast('已从草稿删除 Provider，保存后生效', 'ok');
 }
 

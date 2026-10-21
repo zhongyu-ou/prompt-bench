@@ -2,7 +2,6 @@ import { caseById, ensureSelections, groupById, hasPendingCredentials, hasUnsave
 import { clone, stableStringify } from './utils.js';
 import { App } from './state.js';
 import { showBanner, toast } from './feedback.js';
-import { markPreviewStale } from './preview-state.js';
 import { ensureSaved, reloadFromServer } from './persistence.js';
 import { updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
@@ -42,7 +41,6 @@ function applyMutationResult(view, payload, gen, onSuccess) {
   }
   onSuccess(serverState, payload);
   renderMutatedState();
-  markPreviewStale('Case 数据已更新');
 }
 
 async function stateMutation(path, method, body, { onSuccess, errorLabel = '写入失败' } = {}) {

@@ -49,7 +49,6 @@ async function replayRun(id) {
     const batch = await apiPost(`/api/runs/${encodeURIComponent(id)}/replay`, {});
     App.currentRunId = batch.id;
     App.currentDetail = null;
-    App.expandedResults.clear();
     setView('workbench', { force: true });
     setOutputTab('results');
     await loadRunIntoOutput(batch.id);
@@ -69,7 +68,6 @@ async function replayRun(id) {
 
 async function openRunInOutput(id) {
   App.currentRunId = id;
-  App.expandedResults.clear();
   App.outputFilter = { group: '', case: '', status: '' };
   App.lastFilterSignature = '';
   setView('workbench', { force: true });

@@ -1,0 +1,19 @@
+root = "."
+tmp_dir = ".air-tmp"
+
+[build]
+cmd = "go build -o ./.air-tmp/promptbench ."
+entrypoint = ["./.air-tmp/promptbench"]
+include_ext = ["go", "tmpl", "html", "css", "js"]
+include_file = ["go.mod", "go.sum"]
+exclude_dir = ["database", "docs", "cmd", "vendor"]
+exclude_regex = ["_test\\.go$"]
+exclude_unchanged = true
+delay = 300
+stop_on_error = false
+send_interrupt = true
+# Allow the application's maximum 3600s upstream timeout plus shutdown overhead.
+kill_delay = "1h1m"
+
+[misc]
+clean_on_exit = true

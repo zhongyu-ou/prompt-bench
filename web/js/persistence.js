@@ -5,7 +5,6 @@ import { caseById, ensureSelections, groupById, hasPendingCredentials, hasUnsave
 import { clone, sameValue, stableStringify } from './utils.js';
 import { clearEditorRenderError, hideBanner, showBanner, showEditorRenderError, toast } from './feedback.js';
 import { refreshRunPlan } from './run-plan.js';
-import { markPreviewStale } from './preview-state.js';
 
 async function loadState() {
   App.loading = true;
@@ -19,8 +18,6 @@ async function loadState() {
     App.version = App.state.version;
     App.savedJson = stableStringify(App.state);
     App.savedAt = new Date();
-    App.preview = null;
-    App.previewStale = true;
     App.selectionPreview = null;
     App.selectionPreviewStale = true;
     ensureSelections();
@@ -106,8 +103,8 @@ async function saveState({ silent = false } = {}) {
     renderCredentialState();
     if (!silent) {
       toast(submittedMutations.size
-        ? '草稿与手动凭据已保存（凭据由后端加密存储）。运行中的批次继续使用其冻结快照。'
-        : '草稿已保存。运行中的批次继续使用其冻结快照。', 'ok');
+        ? '更改与手动凭据已保存。'
+        : '更改已保存。', 'ok');
     }
     refreshSelectionAfterSave();
     return true;
@@ -136,9 +133,8 @@ async function ensureSaved() {
   const ok = await saveState({ silent: true });
   if (!ok) return false;
   if (isDirty() || hasPendingCredentials()) {
-    markPreviewStale('保存期间草稿或凭据又有编辑');
     showBanner('保存期间草稿又被编辑，本次操作未执行。请确认当前内容后再次点击。', 'warn');
-    toast('保存期间草稿有新的编辑，已取消本次预览/运行', 'error', 5000);
+    toast('保存期间有新的编辑，已取消本次操作', 'error', 5000);
     refreshRunPlan();
     return false;
   }
@@ -150,8 +146,6 @@ async function reloadFromServer() {
   App.credentialMutations.clear();
   try {
     await loadState();
-    App.preview = null;
-    App.previewStale = true;
     App.caseEditor = null;
     App.groupEditor = null;
     App.io.preview = null;

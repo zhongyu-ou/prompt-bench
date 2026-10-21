@@ -1,5 +1,5 @@
 import { App } from './state.js';
-import { collectionById, groupById, hasUnsavedWork } from './model.js';
+import { collectionById, groupById, hasUnsavedWork, selectedCaseIds } from './model.js';
 import { $, fmtClock } from './utils.js';
 
 function viewCrumb() {
@@ -19,7 +19,7 @@ function viewCrumb() {
     case 'history': return `${base} / 运行记录`;
     case 'providers': return `${base} / Providers`;
     case 'settings': return `${base} / 全局设置`;
-    default: return `${base} / 工作台 · 本次运行范围`;
+    default: return `${base} / 工作台`;
   }
 }
 
@@ -31,8 +31,11 @@ function renderShell() {
   $('state-version').title = `服务端状态版本 ${App.version}`;
   const nameInput = $('draft-name');
   if (nameInput && document.activeElement !== nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
-  const meta = $('draft-meta');
-  if (meta) meta.textContent = `${App.state.cases.length} 个 Case · ${draft.groups.length} 个配置`;
+  const scope = $('workbench-scope-summary');
+  if (scope) {
+    const names = draft.collection_ids.map((id) => collectionById(id)?.name).filter(Boolean);
+    scope.textContent = `${selectedCaseIds().length} 个 Case${names.length ? ` · ${names.join('、')}` : ''}${draft.excluded_case_ids.length ? ` · 已排除 ${draft.excluded_case_ids.length} 项` : ''}`;
+  }
   document.title = `${hasUnsavedWork() ? '● ' : ''}Promptbench · ${draft.name || 'Prompt 调试'}`;
 }
 
@@ -56,7 +59,7 @@ function updateDirtyUI() {
     el.textContent = App.savedAt ? `已保存 ${fmtClock(App.savedAt)}` : '已保存';
   }
   const saveBtn = $('save-btn');
-  if (saveBtn) saveBtn.disabled = App.saving || App.mutating;
+  if (saveBtn) saveBtn.disabled = !dirty || App.saving || App.mutating || App.loading;
   if (App.state) {
     document.title = `${dirty ? '● ' : ''}Promptbench · ${App.state.draft.name || 'Prompt 调试'}`;
   }

@@ -38,7 +38,6 @@ async function startRun() {
   App.outputFilter = { group: '', case: '', status: '' };
   App.lastFilterSignature = '';
   App.outputScrollTop = 0;
-  App.expandedResults.clear();
   try {
     const body = {
       name: (App.state.draft.name || '').trim() || '未命名批次',
@@ -52,7 +51,6 @@ async function startRun() {
     const batch = await apiPost('/api/runs', body);
     App.currentRunId = batch.id;
     App.currentDetail = null;
-    App.expandedResults.clear();
     setView('workbench', { force: true });
     setOutputTab('results');
     await loadRunIntoOutput(batch.id);
@@ -81,7 +79,6 @@ async function loadRunIntoOutput(id) {
     const detail = await apiGet(`/api/runs/${encodeURIComponent(requested)}`);
     if (App.currentRunId !== requested) return;
     App.currentDetail = detail;
-    App.expandedResults.clear();
     renderOutput();
     refreshRunPlan();
     if (batchActive(detail.batch)) {

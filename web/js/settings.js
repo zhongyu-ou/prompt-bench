@@ -2,7 +2,6 @@ import { App } from './state.js';
 import { $ } from './utils.js';
 import { refreshRunPlan, validateSettings } from './run-plan.js';
 import { updateDirtyUI } from './shell-view.js';
-import { markPreviewStale } from './preview-state.js';
 import { scheduleSelectionPreview } from './selection.js';
 import { toast } from './feedback.js';
 import { saveState } from './persistence.js';
@@ -13,10 +12,6 @@ function renderSettings() {
   $('setting-default-runs').value = s.default_runs;
   $('setting-concurrency').value = s.concurrency;
   $('setting-timeout').value = s.timeout_seconds;
-  const runConcurrency = $('run-concurrency');
-  const runDefaults = $('run-default-runs');
-  if (runConcurrency) runConcurrency.value = s.concurrency;
-  if (runDefaults) runDefaults.value = s.default_runs;
   const err = $('settings-error');
   if (err) err.textContent = '';
   App.settingsError = [];
@@ -43,7 +38,6 @@ function applySettingsChange() {
     renderSettings();
     updateDirtyUI();
     refreshRunPlan();
-    markPreviewStale('设置已修改');
     scheduleSelectionPreview();
   }
 }
@@ -60,29 +54,6 @@ export function bindSettingsEvents() {
   });
   ['setting-default-runs', 'setting-concurrency', 'setting-timeout'].forEach((id) => {
     $(id).addEventListener('change', applySettingsChange);
-  });
-  ['run-concurrency', 'run-default-runs'].forEach((id) => {
-    $(id).addEventListener('change', () => {
-      const concurrency = Number($('run-concurrency').value);
-      const defaults = Number($('run-default-runs').value);
-      const next = {
-        ...App.state.settings,
-        concurrency: Number.isInteger(concurrency) ? concurrency : App.state.settings.concurrency,
-        default_runs: Number.isInteger(defaults) ? defaults : App.state.settings.default_runs
-      };
-      const errors = validateSettings(next);
-      if (errors.length) {
-        toast(errors[0], 'error');
-        renderSettings();
-        return;
-      }
-      App.state.settings = next;
-      renderSettings();
-      updateDirtyUI();
-      refreshRunPlan();
-      markPreviewStale('运行设置已修改');
-      scheduleSelectionPreview();
-    });
   });
 }
 

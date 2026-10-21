@@ -2,14 +2,18 @@
 
 ARGS ?=
 
-.PHONY: help run build test
+.PHONY: help run dev build test
 
 help:
 	@printf '%s\n' \
-	  'make run                 Start the local workbench (loads .env if present)' \
+	  'make run                 Start without watching (loads .env if present)' \
+	  'make dev                 Watch sources and rebuild/restart (loads .env if present)' \
 	  'make run ARGS="--help"   Show application flags' \
 	  'make build               Build ./promptbench' \
 	  'make test                Run all Go tests'
+
+dev:
+	go run github.com/air-verse/air@v1.64.5 -c .air.toml -- $(if $(wildcard .env),--env-file .env) $(ARGS)
 
 run:
 	go run . $(if $(wildcard .env),--env-file .env) $(ARGS)

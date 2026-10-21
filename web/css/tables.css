@@ -48,13 +48,6 @@
   border-top: 1px solid var(--border);
   flex-wrap: wrap;
 }
-.run-validation { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 300px; }
+.run-validation { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .validation-line { color: var(--err); font-size: 11px; }
 .validation-line.warn { color: var(--warn); }
-.validation-line.ok { color: var(--ok); }
-.total-line {
-  font-size: 11.5px;
-  color: var(--text-2);
-  font-family: var(--mono-font);
-  white-space: nowrap;
-}

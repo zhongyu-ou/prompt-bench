@@ -4,7 +4,6 @@ import { $, currentTextOf, esc, excerptText, shortId, sourceLanguageOf } from '.
 import { ICON_EDIT } from './constants.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
-import { markPreviewStale } from './preview-state.js';
 import { scheduleSelectionPreview } from './selection.js';
 import { setView } from './navigation.js';
 import { toast } from './feedback.js';
@@ -163,10 +162,9 @@ function libraryApplyForDebug() {
   markEdit();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('本次运行范围已由 Case 库更新');
   scheduleSelectionPreview(0);
   setView('workbench');
-  toast(`已将 ${ids.length} 个 Case 设为本次调试范围（未启动运行）`, 'ok', 3000);
+  toast(`已选择 ${ids.length} 个 Case；点击工作台的运行按钮启动`, 'ok', 3000);
 }
 
 function libraryJoin() {

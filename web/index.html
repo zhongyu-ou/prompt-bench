@@ -11,7 +11,6 @@
 <link rel="stylesheet" href="css/cards.css">
 <link rel="stylesheet" href="css/templates.css">
 <link rel="stylesheet" href="css/tables.css">
-<link rel="stylesheet" href="css/preview.css">
 <link rel="stylesheet" href="css/output.css">
 <link rel="stylesheet" href="css/history.css">
 <link rel="stylesheet" href="css/providers-settings.css">
@@ -31,6 +30,9 @@
 <a class="skip-link" href="#main">跳到主内容</a>
 
 <header class="app-header">
+  <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="收起侧栏" title="收起侧栏" aria-expanded="true" aria-controls="sidebar">
+    <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3" width="15" height="14" rx="2"/><path d="M7 3v14m6-10-3 3 3 3"/></svg>
+  </button>
   <div class="brand">
     <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M10 3h4M11 3v6l-4.4 8.2A2 2 0 0 0 8.4 20h7.2a2 2 0 0 0 1.8-2.8L13 9V3"/>
@@ -42,27 +44,27 @@
 </header>
 
 <div class="app-shell">
-  <aside class="sidebar" aria-label="侧栏">
+  <aside class="sidebar" id="sidebar" aria-label="侧栏">
     <nav class="nav-list" aria-label="页面导航">
-      <button type="button" class="nav-item" data-view="workbench">
+      <button type="button" class="nav-item" data-view="workbench" aria-label="工作台" title="工作台">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3.5" width="14" height="13" rx="1.6"/><path d="M3 8h14M8.5 8v8.5"/></svg>
-        工作台
+        <span class="nav-label">工作台</span>
       </button>
-      <button type="button" class="nav-item" data-view="cases">
+      <button type="button" class="nav-item" data-view="cases" aria-label="Case 库" title="Case 库">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 3.5h3v13H4zM8.5 3.5h3v13h-3zM13 4.2l2.8-.7 2.7 12.2-2.8.7z"/></svg>
-        Case 库
+        <span class="nav-label">Case 库</span>
       </button>
-      <button type="button" class="nav-item" data-view="history">
+      <button type="button" class="nav-item" data-view="history" aria-label="运行记录" title="运行记录">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6a6.5 6.5 0 1 1-1 7"/><path d="M3 4v3.2h3.2M10 6.5V10l2.4 1.6"/></svg>
-        运行记录
+        <span class="nav-label">运行记录</span>
       </button>
-      <button type="button" class="nav-item" data-view="providers">
+      <button type="button" class="nav-item" data-view="providers" aria-label="Providers" title="Providers">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6.2 14.5h8a3.2 3.2 0 0 0 .4-6.4 4.6 4.6 0 0 0-8.8-1.3A3.8 3.8 0 0 0 6.2 14.5z"/></svg>
-        Providers
+        <span class="nav-label">Providers</span>
       </button>
-      <button type="button" class="nav-item" data-view="settings">
+      <button type="button" class="nav-item" data-view="settings" aria-label="全局设置" title="全局设置">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v1.6M10 15.6v1.6M2.8 10h1.6M15.6 10h1.6M4.9 4.9l1.1 1.1M14 14l1.1 1.1M15.1 4.9L14 6M6 14l-1.1 1.1"/></svg>
-        全局设置
+        <span class="nav-label">全局设置</span>
       </button>
     </nav>
 
@@ -98,31 +100,24 @@
           <h1 id="workbench-title" class="page-title">翻译规则对照</h1>
           <div class="save-line">
             <span class="save-state" id="save-state">正在载入…</span>
-            <span class="muted-sep">·</span>
-            <span class="muted" id="draft-meta">本地草稿</span>
             <input id="draft-name" class="draft-name inline" type="text" autocomplete="off" placeholder="草稿名称" aria-label="草稿名称">
           </div>
         </div>
         <div class="toolbar-actions">
-          <button type="button" class="btn" id="save-btn">保存草稿</button>
-          <button type="button" class="btn" id="range-open-btn">
-            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 4.5 14 10l-7.5 5.5z" stroke-linejoin="round"/></svg>
-            运行前确认
-          </button>
+          <button type="button" class="btn" id="save-btn">保存更改</button>
+          <button type="button" class="btn primary run-btn" id="run-btn"><span id="run-btn-label">运行</span></button>
         </div>
       </div>
+      <div class="run-validation" id="run-validation" aria-live="polite"></div>
 
       <div class="wb-grid">
         <div class="wb-main">
           <section class="card editor-card">
             <div class="card-head compact-head">
               <div class="title-line">
-                <h2 class="card-title" id="editor-title">模板与变量</h2>
+                <h2 class="card-title" id="editor-title">模板</h2>
                 <select class="input select compact" id="template-select" aria-label="选择模板"></select>
-                <input class="input template-name" id="template-name" type="text" autocomplete="off" placeholder="模板名称" aria-label="模板名称">
-                <span class="mono muted template-id" id="template-id"></span>
-              </div>
-              <div class="btn-row">
+                <button type="button" class="btn tiny" id="rename-template-btn">重命名</button>
                 <button type="button" class="btn tiny" id="new-template-btn">新建模板</button>
                 <button type="button" class="btn tiny" id="dup-template-btn">复制</button>
                 <button type="button" class="btn tiny danger-text" id="del-template-btn">删除</button>
@@ -134,7 +129,6 @@
                 <summary class="btn tiny">插入变量</summary>
                 <div class="menu-panel" id="insert-var-list"></div>
               </details>
-              <span class="muted small" id="editor-context-label"></span>
             </div>
             <div class="editor-error" id="editor-render-error" role="alert" hidden></div>
             <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
@@ -152,14 +146,15 @@
             </div>
           </section>
 
-          <section class="card case-preview-card" aria-labelledby="wb-case-title">
+        </div>
+        <aside class="wb-side">
+          <section class="card workbench-scope">
             <div class="card-head compact-head">
-              <h2 class="card-title" id="wb-case-title">当前 Case 预览</h2>
-              <span class="mono muted" id="wb-case-id"></span>
+              <h2 class="card-title">运行数据</h2>
+              <button type="button" class="btn tiny" id="workbench-cases-btn">在 Case 库调整</button>
             </div>
-            <div id="wb-case-body" class="wb-case-body"></div>
+            <div class="scope-summary" id="workbench-scope-summary"></div>
           </section>
-
           <section class="card groups-card">
             <div class="card-head">
               <h2 class="card-title" id="groups-title">对照配置</h2>
@@ -167,69 +162,6 @@
               <button type="button" class="btn tiny" id="add-group-btn">＋ 添加配置</button>
             </div>
             <div id="group-cards" class="group-cards"></div>
-            <div class="run-controls">
-              <label class="field compact-field"><span>全局并发</span><input class="input compact num-input" id="run-concurrency" type="number" min="1" max="20" step="1"></label>
-              <label class="field compact-field"><span>每 Case 默认次数</span><input class="input compact num-input" id="run-default-runs" type="number" min="1" max="1000" step="1"></label>
-              <div class="run-controls-spacer"></div>
-              <div class="run-validation" id="run-validation" aria-live="polite"></div>
-              <div class="total-line" id="total-line">选择案例并启用配置后开始运行</div>
-              <button type="button" class="btn primary run-btn" id="run-btn"><span id="run-btn-label">运行</span></button>
-            </div>
-          </section>
-        </div>
-
-        <aside class="wb-side">
-          <section class="card range-panel" id="range-panel">
-            <div class="card-head">
-              <h2 class="card-title">选择本次运行范围</h2>
-              <button type="button" class="icon-btn" id="range-close" title="收起" aria-label="收起运行范围">
-                <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              </button>
-            </div>
-            <div class="range-body">
-              <div class="range-head">
-                <span>已选共享集合</span>
-                <button type="button" class="btn tiny" id="range-collections-btn">调整集合</button>
-              </div>
-              <div id="range-collections" class="range-collections"></div>
-              <div class="range-dedup" id="range-dedup">未选择集合</div>
-              <div id="range-explicit" class="range-explicit"></div>
-              <div class="range-head"><span>本次临时排除</span><span class="muted small" id="range-exclusion-count"></span></div>
-              <div id="range-exclusions" class="range-exclusions"></div>
-              <div class="range-total"><strong id="range-count">0</strong><span>个 Case</span></div>
-              <div class="range-head"><span>当前范围预览</span><button type="button" class="link-btn" id="range-viewall">查看全部</button></div>
-              <div id="range-preview" class="range-preview"></div>
-              <div class="range-formula" id="range-formula"></div>
-              <p class="field-error" id="range-error" role="alert"></p>
-              <button type="button" class="btn primary full" id="range-apply">应用到本次调试</button>
-            </div>
-          </section>
-          <div class="range-collapsed" id="range-collapsed" hidden>
-            <button type="button" class="btn full" id="range-reopen">选择本次运行范围</button>
-          </div>
-
-          <section class="card preview-card">
-            <div class="card-head compact-head">
-              <h2 class="card-title" id="preview-title">实际请求预览</h2>
-              <span class="pill subtle" id="preview-state">未预览</span>
-              <button type="button" class="btn tiny" id="refresh-preview-btn">刷新预览</button>
-              <button type="button" class="btn tiny" id="copy-preview-btn">复制</button>
-            </div>
-            <div class="preview-meta">
-              <div><span class="preview-label">Protocol</span><span class="mono preview-value" id="preview-protocol">—</span></div>
-              <div><span class="preview-label">Request</span><span class="mono preview-value" id="preview-endpoint">—</span></div>
-              <div><span class="preview-label">Prompt hash</span><span class="mono preview-value" id="preview-hash">—</span></div>
-              <div><span class="preview-label">语言</span><span class="mono preview-value" id="preview-language">—</span></div>
-            </div>
-            <details class="preview-extra" id="preview-extra" hidden>
-              <summary>请求头与精确字节</summary>
-              <div class="preview-extra-body">
-                <div class="raw-block"><h4>Headers（无认证头）</h4><pre id="preview-headers"></pre></div>
-                <div class="raw-block"><h4>raw_request（精确字节）</h4><pre id="preview-raw-request"></pre></div>
-              </div>
-            </details>
-            <div class="field-error" id="preview-error" role="alert"></div>
-            <pre class="code-block preview-block" id="preview-body" tabindex="0" aria-label="实际请求 JSON">选择案例与对照配置后点击“刷新预览”。</pre>
           </section>
         </aside>
       </div>
@@ -310,7 +242,7 @@
         <button type="button" class="btn tiny" id="library-join">加入集合</button>
         <button type="button" class="btn tiny" id="library-leave">移出当前集合</button>
         <button type="button" class="btn tiny" id="library-export">导出</button>
-        <button type="button" class="btn tiny primary" id="library-debug">用于调试</button>
+        <button type="button" class="btn tiny primary" id="library-debug">设为运行数据</button>
         <button type="button" class="link-btn" id="library-clear">清空</button>
       </div>
 
@@ -340,6 +272,28 @@
           <span class="muted small" id="library-pages">共 1 页</span>
         </div>
       </div>
+          <section class="card range-panel" id="range-panel">
+            <div class="card-head">
+              <h2 class="card-title">运行数据</h2>
+            </div>
+            <div class="range-body">
+              <div class="range-head">
+                <span>已选共享集合</span>
+                <button type="button" class="btn tiny" id="range-collections-btn">调整集合</button>
+              </div>
+              <div id="range-collections" class="range-collections"></div>
+              <div class="range-dedup" id="range-dedup">未选择集合</div>
+              <div id="range-explicit" class="range-explicit"></div>
+              <div class="range-head"><span>本次临时排除</span><span class="muted small" id="range-exclusion-count"></span></div>
+              <div id="range-exclusions" class="range-exclusions"></div>
+              <div class="range-total"><strong id="range-count">0</strong><span>个 Case</span></div>
+              <div class="range-head"><span>当前范围预览</span><button type="button" class="link-btn" id="range-viewall">查看全部</button></div>
+              <div id="range-preview" class="range-preview"></div>
+              <div class="range-formula" id="range-formula"></div>
+              <p class="field-error" id="range-error" role="alert"></p>
+              <button type="button" class="btn primary full" id="range-apply">应用并返回工作台</button>
+            </div>
+          </section>
     </section>
 
     <section class="view" id="view-case-editor" aria-labelledby="case-editor-title" hidden>
@@ -809,12 +763,12 @@
       <button type="button" class="icon-btn" data-close-dialog="template-dialog" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
-      <label class="field"><span>模板名称</span><input class="input" id="template-new-name" type="text" autocomplete="off" placeholder="新模板"><small>创建后包含一条空 user 消息，可在编辑器中增删角色。</small></label>
+      <label class="field"><span>模板名称</span><input class="input" id="template-new-name" type="text" autocomplete="off" placeholder="模板名称"></label>
       <p class="field-error" id="template-error" role="alert"></p>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn" data-close-dialog="template-dialog">取消</button>
-      <button type="submit" class="btn primary">创建模板</button>
+      <button type="submit" class="btn primary" id="template-confirm">创建模板</button>
     </div>
   </form>
 </dialog>

@@ -1,12 +1,12 @@
 import { $, clone, esc, uniqueId } from './utils.js';
-import { activeCase, activeGroup, activeMessage, activeTemplate, caseById, ensureSelections, groupById, templateById } from './model.js';
+import { activeCase, activeGroup, activeMessage, activeTemplate, ensureSelections, groupById, markEdit, templateById } from './model.js';
 import { toast } from './feedback.js';
 import { App } from './state.js';
-import { renderGroupCards, renderModelSuggestions, renderWorkbenchCase } from './workbench-view.js';
+import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
-import { markPreviewStale } from './preview-state.js';
 import { refreshRunPlan } from './run-plan.js';
 
+let renamingTemplateId = null;
 function renderTemplateMismatch() {
   const btn = $('template-mismatch');
   if (!btn) return;
@@ -25,7 +25,7 @@ function renderTemplateMismatch() {
   btn.textContent = bound
     ? `编辑器「${editing.name || editing.id}」≠ 配置绑定「${bound.name || bound.id}」 · 切到绑定模板`
     : '配置绑定的模板缺失 · 请编辑配置';
-  btn.title = '预览与运行始终使用对照配置绑定的模板，与编辑器当前浏览的模板无关。';
+  btn.title = '运行使用对照配置绑定的模板，与编辑器当前浏览的模板无关。';
 }
 
 function focusBoundTemplate() {
@@ -51,12 +51,7 @@ function renderTemplateOptions() {
     ? templates.map((t) => `<option value="${esc(t.id)}">${esc(t.name || t.id)}</option>`).join('')
     : '<option value="">（无模板）</option>';
   sel.value = App.activeTemplateId || '';
-  const nameInput = $('template-name');
-  if (nameInput) {
-    nameInput.disabled = !templates.length;
-    if (document.activeElement !== nameInput) nameInput.value = activeTemplate()?.name || '';
-  }
-  $('template-id').textContent = activeTemplate() ? `id: ${activeTemplate().id}` : '';
+  $('rename-template-btn').disabled = !templates.length;
   $('dup-template-btn').disabled = !templates.length;
   $('del-template-btn').disabled = !templates.length;
 }
@@ -68,6 +63,13 @@ function renderTemplateEditor() {
   const ta = $('message-content');
   const role = $('message-role');
   const tabs = $('message-tabs');
+  const roles = [...new Set(App.providerProtocols.flatMap((protocol) => protocol.roles || []))];
+  role.replaceChildren(...roles.map((value) => new Option(value, value)));
+  if (msg && !roles.includes(msg.role)) {
+    const unknown = new Option(`${msg.role}（不支持）`, msg.role);
+    unknown.disabled = true;
+    role.add(unknown);
+  }
 
   if (!tpl) {
     tabs.innerHTML = '<span class="message-tabs-empty">尚无模板。点击“新建模板”开始。</span>';
@@ -79,7 +81,6 @@ function renderTemplateEditor() {
     $('del-message-btn').disabled = true;
     $('insert-var-menu').hidden = true;
     updateLineInfo(ta, $('message-lineinfo'));
-    updateEditorContextLabel();
     renderTemplateMismatch();
     return;
   }
@@ -110,30 +111,9 @@ function renderTemplateEditor() {
     role.value = 'user';
   }
   updateLineInfo(ta, $('message-lineinfo'));
-  updateEditorContextLabel();
   renderTemplateMismatch();
 }
 
-function updateEditorContextLabel() {
-  const el = $('editor-context-label');
-  if (!el) return;
-  const tpl = activeTemplate();
-  el.textContent = tpl ? `${tabTitleSafe(tpl)} · ${tpl.messages.length} 条消息 · 后端渲染` : '';
-}
-
-function tabTitleSafe(tpl) {
-  return tpl ? (tpl.name || tpl.id) : '模板';
-}
-
-function setActiveCase(id) {
-  if (!caseById(id)) return;
-  App.activeCaseId = id;
-  renderWorkbenchCase();
-  renderTemplateEditor();
-  renderInsertVarList();
-  renderShell();
-  markPreviewStale('已切换案例');
-}
 
 function renderInsertVarList() {
   const list = $('insert-var-list');
@@ -160,14 +140,15 @@ function insertVariableToken(key) {
   const start = ta.selectionStart ?? ta.value.length;
   const end = ta.selectionEnd ?? start;
   const next = ta.value.slice(0, start) + token + ta.value.slice(end);
+  if (next === msg.content) return;
   msg.content = next;
+  markEdit();
   ta.value = next;
   const pos = start + token.length;
   ta.focus();
   ta.setSelectionRange(pos, pos);
   updateLineInfo(ta, $('message-lineinfo'));
-  updateDirtyUI();
-  markPreviewStale('模板已修改');
+  refreshRunPlan();
 }
 
 function handleMessageInput() {
@@ -176,8 +157,7 @@ function handleMessageInput() {
   if (!msg || !ta) return;
   msg.content = ta.value;
   updateLineInfo(ta, $('message-lineinfo'));
-  updateDirtyUI();
-  markPreviewStale('模板已修改');
+  refreshRunPlan();
 }
 
 function updateLineInfo(textarea, label) {
@@ -191,9 +171,14 @@ function updateLineInfo(textarea, label) {
   label.textContent = `行 ${line}，列 ${col} · ${total} 行`;
 }
 
-function openTemplateDialog() {
+function openTemplateDialog(rename = false) {
+  const tpl = rename ? activeTemplate() : null;
+  if (rename && !tpl) return;
+  renamingTemplateId = tpl?.id || null;
   const input = $('template-new-name');
-  input.value = `模板 ${App.state.templates.length + 1}`;
+  input.value = tpl ? tpl.name || tpl.id : `模板 ${App.state.templates.length + 1}`;
+  $('template-dialog-title').textContent = tpl ? '重命名模板' : '新建模板';
+  $('template-confirm').textContent = tpl ? '重命名' : '新建';
   $('template-error').textContent = '';
   $('template-dialog').showModal();
   window.setTimeout(() => { input.focus(); input.select(); }, 0);
@@ -204,6 +189,7 @@ function createTemplate(name) {
   const id = uniqueId('template_', ids);
   const tpl = { id, name: name.trim(), messages: [{ role: 'user', content: '' }] };
   App.state.templates.push(tpl);
+  markEdit();
   App.activeTemplateId = id;
   App.activeMessageIndex = 0;
   renderTemplateOptions();
@@ -212,7 +198,6 @@ function createTemplate(name) {
   renderModelSuggestions();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('模板已新建');
 }
 
 function duplicateTemplate() {
@@ -224,6 +209,7 @@ function duplicateTemplate() {
   copy.id = id;
   copy.name = `${src.name || src.id} 副本`;
   App.state.templates.push(copy);
+  markEdit();
   App.activeTemplateId = id;
   App.activeMessageIndex = 0;
   renderTemplateOptions();
@@ -241,6 +227,7 @@ function deleteTemplate() {
   const extra = groups.length ? `\n\n草稿中引用它的 ${groups.length} 个对照配置也会被移除。` : '';
   if (!window.confirm(`删除模板「${tpl.name || tpl.id}」？${extra}\n\n已保存的历史批次不受影响。`)) return;
   App.state.templates = App.state.templates.filter((t) => t.id !== tpl.id);
+  markEdit();
   if (groups.length) {
     App.state.draft.groups = App.state.draft.groups.filter((g) => g.template_id !== tpl.id);
     if (!groupById(App.activeGroupId)) App.activeGroupId = App.state.draft.groups[0]?.id || null;
@@ -253,17 +240,16 @@ function deleteTemplate() {
   renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('模板已删除');
 }
 
 function addMessage() {
   const tpl = activeTemplate();
   if (!tpl) return;
   tpl.messages.push({ role: 'user', content: '' });
+  markEdit();
   App.activeMessageIndex = tpl.messages.length - 1;
   renderTemplateEditor();
-  updateDirtyUI();
-  markPreviewStale('模板消息已添加');
+  refreshRunPlan();
   $('message-content').focus();
 }
 
@@ -276,33 +262,25 @@ function deleteMessage() {
     return;
   }
   tpl.messages.splice(App.activeMessageIndex, 1);
+  markEdit();
   App.activeMessageIndex = Math.min(App.activeMessageIndex, Math.max(0, tpl.messages.length - 1));
   renderTemplateEditor();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('模板消息已删除');
 }
 
 export function bindTemplateEvents() {
   $('template-select').addEventListener('change', (e) => {
     App.activeTemplateId = e.target.value || null;
     App.activeMessageIndex = 0;
+    renderTemplateOptions();
     renderTemplateEditor();
     renderTemplateMismatch();
     renderShell();
   });
-  $('template-name').addEventListener('input', (e) => {
-    const tpl = activeTemplate();
-    if (!tpl) return;
-    tpl.name = e.target.value;
-    renderTemplateOptions();
-    renderTemplateMismatch();
-    renderGroupCards();
-    updateDirtyUI();
-    refreshRunPlan();
-    markPreviewStale('模板名称已修改');
-  });
-  $('new-template-btn').addEventListener('click', openTemplateDialog);
+  $('new-template-btn').addEventListener('click', () => openTemplateDialog());
+  $('rename-template-btn').addEventListener('click', () => openTemplateDialog(true));
+  $('template-mismatch').addEventListener('click', focusBoundTemplate);
   $('dup-template-btn').addEventListener('click', duplicateTemplate);
   $('del-template-btn').addEventListener('click', deleteTemplate);
 
@@ -322,18 +300,20 @@ export function bindTemplateEvents() {
       const ta = e.target;
       const start = ta.selectionStart;
       const end = ta.selectionEnd;
-      ta.value = `${ta.value.slice(0, start)}  ${ta.value.slice(end)}`;
+      const next = `${ta.value.slice(0, start)}  ${ta.value.slice(end)}`;
+      if (next !== ta.value) markEdit();
+      ta.value = next;
       ta.setSelectionRange(start + 2, start + 2);
       handleMessageInput();
     }
   });
   $('message-role').addEventListener('change', (e) => {
     const msg = activeMessage();
-    if (!msg) return;
+    if (!msg || msg.role === e.target.value) return;
     msg.role = e.target.value;
+    markEdit();
     renderTemplateEditor();
-    updateDirtyUI();
-    markPreviewStale('消息角色已修改');
+    refreshRunPlan();
   });
   $('add-message-btn').addEventListener('click', addMessage);
   $('del-message-btn').addEventListener('click', deleteMessage);
@@ -355,9 +335,26 @@ export function bindTemplateEvents() {
       $('template-new-name').focus();
       return;
     }
-    createTemplate(name);
+    if (renamingTemplateId) {
+      const tpl = templateById(renamingTemplateId);
+      if (!tpl) {
+        $('template-error').textContent = '模板已不存在。';
+        return;
+      }
+      if (tpl.name !== name) {
+        tpl.name = name;
+        markEdit();
+        renderTemplateOptions();
+        renderTemplateMismatch();
+        renderGroupCards();
+        updateDirtyUI();
+        refreshRunPlan();
+      }
+    } else {
+      createTemplate(name);
+      toast('已新建模板，保存更改后生效', 'ok');
+    }
     $('template-dialog').close();
-    toast('已新建模板到草稿，保存后生效', 'ok');
   });
 }
 

@@ -2,29 +2,23 @@
 
 .wb-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
   gap: 22px;
   align-items: start;
 }
 .wb-main, .wb-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.wb-side { position: sticky; top: 84px; }
+.wb-side { position: static; }
 .output-card { margin-top: 14px; }
-.editor-card .code-editor { min-height: 110px; height: 110px; }
+.editor-card .code-editor { min-height: 340px; height: min(50vh, 480px); }
 .editor-card .compact-head { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 12px; }
-.editor-card .title-line { flex-wrap: wrap; gap: 6px; }
+.editor-card .title-line { flex-wrap: nowrap; gap: 6px; overflow-x: auto; }
+ .editor-card .title-line .btn { flex-shrink: 0; }
 .editor-card .card-title { white-space: nowrap; font-size: 12.5px; }
-.editor-card .template-name { flex: 1 1 130px; width: auto; min-width: 100px; min-height: 28px; }
-.editor-card .template-id { display: none; }
-.editor-card .compact-head .btn-row { justify-content: flex-end; }
+.editor-card #template-select { flex: 1; min-width: 100px; }
 .editor-card .message-tab { min-height: 26px; }
 .editor-tools { padding: 0 12px 4px; }
-.wb-case-body { padding: 9px 14px 10px; display: flex; flex-direction: column; gap: 4px; }
-.case-preview-text { font-size: 14px; color: var(--text); line-height: 1.45; white-space: pre-wrap; }
-.case-preview-meta { font-size: 12px; color: var(--text-2); }
-.case-target-line { display: flex; gap: 10px; align-items: baseline; font-size: 12px; }
-.case-target-group { min-width: 76px; color: var(--text-2); font-weight: 600; }
-.case-target-values { color: var(--accent); font-family: var(--mono-font); }
-.default-mark { color: var(--muted); font-size: 10.5px; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0 5px; margin-left: 3px; }
+.scope-summary { padding: 12px 14px; color: var(--text-2); overflow-wrap: anywhere; }
+.group-template { font-size: 11px; color: var(--text-2); }
 .group-cards { display: flex; flex-direction: column; }
 .group-summary {
   display: grid;
@@ -51,39 +45,7 @@
   color: inherit;
 }
 .group-name { font-size: 13.5px; font-weight: 650; color: var(--text); }
-.group-meta { font-size: 11.5px; color: var(--text-2); }
+.group-meta { font-size: 11.5px; color: var(--text-2); overflow-wrap: anywhere; }
 .group-routes { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono-font); font-size: 11px; color: var(--accent); }
 .group-routes .route-default { color: var(--muted); }
 .group-summary .btn.tiny .icon { width: 12px; height: 12px; }
-.compact-field { width: 132px; }
-/* Keep run controls above the fold: two compact rows plus validation. */
-.run-controls {
-  display: grid;
-  grid-template-columns: minmax(120px, 140px) minmax(120px, 140px) minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 8px 12px;
-  padding: 10px 14px 12px;
-}
-.run-controls .compact-field { width: auto; }
-.run-controls .compact-field .input { min-height: 32px; }
-.run-controls .run-validation {
-  grid-column: 1 / 4;
-  grid-row: 2;
-  order: 0;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  flex: initial;
-}
-.run-controls .total-line {
-  grid-column: 1 / 4;
-  grid-row: 3;
-  order: 0;
-  font-size: 11px;
-}
-.run-controls .run-btn {
-  grid-column: 4;
-  grid-row: 1 / 4;
-  align-self: center;
-  order: 0;
-}

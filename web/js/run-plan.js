@@ -91,7 +91,7 @@ function computeRunPlan() {
     else runsPerCase += runs;
     for (const err of validateRoutes(g.language_routes || [])) errors.push(`配置「${label}」：${err}`);
   }
-  if (!cases.length) errors.push('本次运行范围没有 Case（在右侧选择集合，或从 Case 库“用于调试”）。');
+  if (!cases.length) errors.push('没有运行数据，请在 Case 库选择 Case 或集合。');
   const danglingCollections = App.state.draft.collection_ids.filter((id) => !collectionById(id));
   if (danglingCollections.length) errors.push(`草稿引用了不存在的集合：${danglingCollections.join(', ')}。`);
   const unknownExcluded = App.state.draft.excluded_case_ids.filter((id) => !caseById(id));
@@ -101,7 +101,6 @@ function computeRunPlan() {
   if (total > 100000) errors.push(`总请求数 ${total} 超过单批次上限 100000。`);
   for (const err of validateSettings(App.state.settings)) errors.push(err);
   for (const err of App.settingsError) if (!errors.includes(err)) errors.push(err);
-  if (hasUnsavedWork()) warnings.push('存在未保存更改；如含待保存的手动密钥，会与草稿一起提交。');
   if (hasKnownActiveBatch()) warnings.push('已有批次正在运行；同一时间只允许一个批次，启动按钮已禁用。');
   return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency };
 }
@@ -116,12 +115,6 @@ function refreshRunPlan() {
   if (!App.state) return;
   const plan = computeRunPlan();
   renderRunValidation(plan);
-  const totalLine = $('total-line');
-  if (totalLine) {
-    totalLine.textContent = plan.total
-      ? `${plan.cases.length} 个 Case × ${plan.runsPerCase} 次 = ${plan.total} 次请求 · 并发 ≤ ${plan.concurrency}`
-      : '选择 Case 并启用配置后开始运行';
-  }
   const btn = $('run-btn');
   const label = $('run-btn-label');
   if (!btn || !label) return;
@@ -132,7 +125,7 @@ function refreshRunPlan() {
   btn.classList.toggle('busy', active);
   label.textContent = active
     ? (stopping ? '停止中…' : '批次运行中')
-    : (plan.total > 0 ? `运行 ${plan.total} 次` : '运行');
+    : (plan.total > 0 ? `${hasUnsavedWork() ? '保存并运行' : '运行'} ${plan.total} 次` : '运行');
   btn.title = plan.errors.length
     ? `无法运行：${plan.errors[0]}`
     : (active ? '已有批次运行中；可在运行输出面板查看或停止' : '保存草稿并以当前范围启动批次');
@@ -145,12 +138,11 @@ function renderRunValidation(plan) {
   const lines = [];
   for (const err of plan.errors) lines.push(`<div class="validation-line">● ${esc(err)}</div>`);
   for (const warning of plan.warnings) lines.push(`<div class="validation-line warn">○ ${esc(warning)}</div>`);
-  if (!plan.errors.length && plan.total > 0) {
-    lines.push(`<div class="validation-line ok">● 校验通过：${esc(String(plan.total))} 次请求，待保存后启动。</div>`);
-  } else if (!plan.errors.length) {
+  if (!plan.errors.length && plan.total <= 0) {
     lines.push('<div class="validation-line warn">○ 尚未选择可运行的 Case 或配置。</div>');
   }
   el.innerHTML = lines.join('');
+  el.hidden = !lines.length;
 }
 
 export { computeRunPlan, hasKnownActiveBatch, refreshRunPlan, validateRoutes, validateSettings };

@@ -1,7 +1,5 @@
 /* ---------- Editor ---------- */
 
-.template-name { width: 170px; }
-.template-id { font-size: 10.5px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filetabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; }
 .filetab {
   position: relative;

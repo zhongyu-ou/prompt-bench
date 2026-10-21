@@ -2,7 +2,7 @@ import { $, esc, fmtDateTime, statusLabel } from './utils.js';
 import { App } from './state.js';
 import { statusTag } from './feedback.js';
 import { snapshotHtml } from './snapshot.js';
-import { resultRowHtml } from './output.js';
+import { renderResultBrowser } from './output.js';
 
 function renderHistoryList() {
   const list = $('history-run-list');
@@ -84,11 +84,10 @@ function renderHistoryDetail(detail) {
       </section>
       <section class="detail-section">
         <h3>结果（${results.length}）</h3>
-        <div class="result-list detail-results">
-          ${results.length ? results.map((r) => resultRowHtml(r)).join('') : '<div class="empty-state">没有结果记录。</div>'}
-        </div>
+        <div class="result-list detail-results"></div>
       </section>
     </div>`;
+  renderResultBrowser(el.querySelector('.detail-results'), results);
 }
 
 export { renderHistoryDetail, renderHistoryList, updateCompareButton };

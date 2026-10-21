@@ -6,7 +6,7 @@ import { reloadFromServer } from './persistence.js';
 import { caseById, collectionById, markEdit, resolveSelection } from './model.js';
 import { updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
-import { markPreviewStale } from './preview-state.js';
+import { setView } from './navigation.js';
 
 function selectionKey(selection) {
   return JSON.stringify({
@@ -29,6 +29,7 @@ function currentAppliedSelection() {
 }
 
 function scheduleSelectionPreview(delay = 220) {
+  if (App.activeView !== 'cases') return;
   if (App.selectionTimer) window.clearTimeout(App.selectionTimer);
   App.selectionTimer = window.setTimeout(() => {
     App.selectionTimer = null;
@@ -110,6 +111,7 @@ function rangeStaging() {
 
 function scheduleStagedPreview(delay = 200) {
   if (App.selectionTimer) window.clearTimeout(App.selectionTimer);
+  if (App.activeView !== 'cases') return;
   App.selectionTimer = window.setTimeout(() => {
     App.selectionTimer = null;
     if (!App.rangeDraft) return;
@@ -145,7 +147,6 @@ function rangeDedupInfo(selection) {
 
 function renderSelectionPanel() {
   const panel = $('range-panel');
-  const collapsed = $('range-collapsed');
   if (!panel) return;
   const pruned = pruneRangeDraft();
   if (pruned) {
@@ -153,9 +154,8 @@ function renderSelectionPanel() {
     App.selectionPreviewStale = true;
     App.selectionPreviewKey = '';
   }
-  const visible = App.rangeOpen && App.activeView === 'workbench';
+  const visible = App.activeView === 'cases';
   panel.hidden = !visible;
-  if (collapsed) collapsed.hidden = visible;
   if (!visible || !App.state) return;
   if (pruned) scheduleStagedPreview(0);
   const staging = rangeStaging();
@@ -214,10 +214,7 @@ function renderSelectionPanel() {
   const enabledGroups = App.state.draft.groups.filter((g) => g.enabled);
   const runs = enabledGroups.map((g) => Number(g.runs) || 0);
   const requestCount = preview ? preview.request_count : resolved.length * runs.reduce((a, b) => a + b, 0);
-  const formula = runs.length
-    ? `${resolved.length} × ${runs.every((r) => r === runs[0]) ? `${runs[0]} × ${runs.length}` : `(${runs.join(' + ')})`} = ${requestCount} 次调用`
-    : `${resolved.length} 个 Case · 没有启用配置`;
-  $('range-formula').textContent = formula;
+  $('range-formula').textContent = runs.length ? `共 ${requestCount} 次请求` : '没有启用配置';
   $('range-error').textContent = App.selectionPreview && App.selectionPreview.key === selectionKey(selection) && App.selectionPreview.error
     ? `范围预览失败：${App.selectionPreview.error}`
     : '';
@@ -236,10 +233,9 @@ function rangeApply() {
   markEdit();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('本次运行范围已更新');
   scheduleSelectionPreview(0);
-  renderSelectionPanel();
-  toast('已应用到本次调试范围（未启动运行，也未修改集合成员）', 'ok', 3500);
+  setView('workbench');
+  toast('运行数据已更新，尚未启动运行', 'ok', 2500);
 }
 
 function openRangeCollectionsDialog() {
@@ -272,18 +268,6 @@ function applyRangeCollections() {
 }
 
 export function bindSelectionEvents() {
-  $('range-open-btn').addEventListener('click', () => {
-    App.rangeOpen = true;
-    renderSelectionPanel();
-  });
-  $('range-close').addEventListener('click', () => {
-    App.rangeOpen = false;
-    renderSelectionPanel();
-  });
-  $('range-reopen').addEventListener('click', () => {
-    App.rangeOpen = true;
-    renderSelectionPanel();
-  });
   $('range-collections-btn').addEventListener('click', openRangeCollectionsDialog);
   $('range-collections-apply').addEventListener('click', applyRangeCollections);
   $('range-collections').addEventListener('change', (e) => {

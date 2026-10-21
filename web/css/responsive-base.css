@@ -42,14 +42,10 @@
   .draft-name { width: 100%; }
   .form-grid { grid-template-columns: 1fr; }
   .editor-tools { width: 100%; justify-content: flex-end; padding-bottom: 4px; flex-wrap: wrap; min-width: 0; }
-  .template-name { flex: 1 1 120px; width: auto; min-width: 0; }
-  .template-id { display: none; }
-  .editor-context-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mismatch-btn { max-width: 100%; }
   .run-btn { flex: 1 1 auto; }
   .result-summary { grid-template-columns: 58px minmax(70px, 1fr) 70px 52px; row-gap: 2px; }
   .result-summary .model, .result-summary .snippet { display: none; }
-  .result-raw { padding-left: 12px; }
   .output-head { padding: 0 8px; }
   .progress-track { width: 80px; }
   .detail-head { flex-direction: column; }

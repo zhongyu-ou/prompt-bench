@@ -2,13 +2,12 @@ import { caseEditorDirty, ensureSelections, groupEditorDirty, hasUnsavedWork, ma
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { bindLibraryEvents, renderCollectionNav, renderLibrary } from './case-library.js';
 import { bindTemplateEvents, renderTemplateEditor, renderTemplateOptions } from './templates.js';
-import { renderGroupCards, renderModelSuggestions, renderWorkbenchCase } from './workbench-view.js';
+import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { bindProviderEvents, loadProtocols, renderProviders } from './providers.js';
 import { bindSettingsEvents, renderSettings } from './settings.js';
 import { renderHistoryList } from './history-view.js';
 import { bindOutputEvents, renderOutput } from './output.js';
-import { markPreviewStale, renderPreviewState } from './preview-state.js';
-import { bindSelectionEvents, refreshSelectionPreview, renderSelectionPanel, scheduleSelectionPreview, scheduleStagedPreview } from './selection.js';
+import { bindSelectionEvents, renderSelectionPanel, scheduleSelectionPreview, scheduleStagedPreview } from './selection.js';
 import { bindCaseEditorEvents, renderCaseEditor } from './case-editor.js';
 import { bindIOEvents, renderIO } from './case-io.js';
 import { bindGroupEvents, renderGroupEditor } from './groups.js';
@@ -17,7 +16,6 @@ import { App } from './state.js';
 import { configurePersistence, loadState, saveState } from './persistence.js';
 import { hideBanner, setConnection, showBanner, toast } from './feedback.js';
 import { bindRunEvents, refreshRuns, resumeActiveRun, startRun } from './runs.js';
-import { bindPreviewEvents, refreshPreview } from './preview.js';
 import { configureNavigation, setView } from './navigation.js';
 import { $ } from './utils.js';
 import { bindHistoryEvents } from './history.js';
@@ -30,13 +28,11 @@ function renderAll() {
   renderTemplateOptions();
   renderTemplateEditor();
   renderGroupCards();
-  renderWorkbenchCase();
   renderModelSuggestions();
   renderProviders();
   renderSettings();
   renderHistoryList();
   renderOutput();
-  renderPreviewState();
   renderSelectionPanel();
   renderLibrary();
   renderCaseEditor();
@@ -57,8 +53,6 @@ async function bootstrap() {
     renderAll();
     await refreshRuns({ quiet: true });
     await resumeActiveRun();
-    refreshPreview({ silent: true });
-    refreshSelectionPreview({ silent: true });
     hideBanner();
   } catch (err) {
     setConnection(false);
@@ -84,7 +78,6 @@ function renderView(view) {
     renderTemplateOptions();
     renderTemplateEditor();
     renderGroupCards();
-    renderWorkbenchCase();
     refreshRunPlan();
   } else if (view === 'cases') {
     renderLibrary();
@@ -103,7 +96,7 @@ function renderView(view) {
     renderSettings();
   }
   renderSelectionPanel();
-  if (view === 'workbench' && App.rangeDraft) scheduleStagedPreview(0);
+  if (view === 'cases') scheduleStagedPreview(0);
 }
 
 function renderSavedState() {
@@ -111,7 +104,6 @@ function renderSavedState() {
   renderTemplateEditor();
   renderGroupCards();
   renderSettings();
-  renderWorkbenchCase();
 }
 
 function renderCredentialState() {
@@ -121,15 +113,12 @@ function renderCredentialState() {
 
 async function renderReloadedState() {
   renderAll();
-  renderPreviewState();
   await refreshRuns({ quiet: true });
-  refreshPreview({ silent: true });
 }
 
 function renderMutatedState() {
   renderCollectionNav();
   renderGroupCards();
-  renderWorkbenchCase();
   renderLibrary();
   if (App.activeView === 'case-io') renderIO();
   if (App.activeView === 'group-editor') renderGroupEditor();
@@ -147,17 +136,34 @@ function renderMutationEditors() {
 }
 
 function bindStaticEvents() {
+  const sidebarToggle = $('sidebar-toggle');
+  function setSidebarCollapsed(collapsed) {
+    document.body.classList.toggle('sidebar-collapsed', collapsed);
+    sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    sidebarToggle.title = collapsed ? '展开侧栏' : '收起侧栏';
+    sidebarToggle.setAttribute('aria-label', sidebarToggle.title);
+  }
+  try { setSidebarCollapsed(localStorage.getItem('sidebar-collapsed') === 'true'); } catch {}
+  sidebarToggle.addEventListener('click', () => {
+    const collapsed = !document.body.classList.contains('sidebar-collapsed');
+    setSidebarCollapsed(collapsed);
+    try { localStorage.setItem('sidebar-collapsed', String(collapsed)); } catch {}
+  });
+
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.addEventListener('click', () => setView(btn.dataset.view));
   });
 
   $('save-btn').addEventListener('click', () => saveState());
   $('run-btn').addEventListener('click', startRun);
+  $('workbench-cases-btn').addEventListener('click', () => {
+    setView('cases');
+    $('range-panel').scrollIntoView({ block: 'start' });
+  });
   $('draft-name').addEventListener('input', (e) => {
     App.state.draft.name = e.target.value;
     renderShell();
-    updateDirtyUI();
-    markPreviewStale('草稿名称已修改');
+    refreshRunPlan();
   });
   document.querySelectorAll('[data-close-dialog]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -207,7 +213,6 @@ function bindStaticEvents() {
   bindLibraryEvents();
   bindCaseEditorEvents();
   bindIOEvents();
-  bindPreviewEvents();
   bindRunEvents();
 }
 

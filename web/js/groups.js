@@ -1,13 +1,12 @@
 import { App } from './state.js';
 import { groupById, groupEditorDirty, markEdit, protocolLabel, providerById, resolveGroupTargets, templateById } from './model.js';
 import { $, clone, esc, hasOwn, pretty, sourceLanguageOf, stableStringify } from './utils.js';
-import { nextGroupDefaults, renderGroupCards, renderModelSuggestions, renderWorkbenchCase } from './workbench-view.js';
+import { nextGroupDefaults, renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { setView } from './navigation.js';
 import { ICON_TRASH, LANGUAGE_NAMES } from './constants.js';
 import { refreshRunPlan, validateRoutes } from './run-plan.js';
 import { renderTemplateEditor, renderTemplateMismatch, renderTemplateOptions } from './templates.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
-import { markPreviewStale } from './preview-state.js';
 import { scheduleSelectionPreview } from './selection.js';
 import { toast } from './feedback.js';
 
@@ -244,13 +243,11 @@ function groupEditorSave() {
   }
   App.groupEditor = null;
   renderGroupCards();
-  renderWorkbenchCase();
   renderTemplateOptions();
   renderTemplateEditor();
   renderModelSuggestions();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('对照配置已修改');
   scheduleSelectionPreview(0);
   setView('workbench', { force: true });
   toast('对照配置已保存到草稿', 'ok');
@@ -321,10 +318,8 @@ function setActiveGroup(id) {
     renderTemplateEditor();
   }
   renderGroupCards();
-  renderWorkbenchCase();
   renderTemplateMismatch();
   renderShell();
-  markPreviewStale('已切换对照配置');
 }
 
 function deleteGroup(id) {
@@ -336,7 +331,6 @@ function deleteGroup(id) {
   renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
-  markPreviewStale('对照配置已删除');
 }
 
 export function bindGroupEvents() {
@@ -350,10 +344,8 @@ export function bindGroupEvents() {
     if (!g) return;
     g.enabled = cb.checked;
     renderGroupCards();
-    renderWorkbenchCase();
     updateDirtyUI();
     refreshRunPlan();
-    markPreviewStale('配置启用状态已修改');
     scheduleSelectionPreview();
   });
   $('group-cards').addEventListener('click', (e) => {

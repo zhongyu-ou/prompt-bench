@@ -184,7 +184,7 @@ function normalizeState(input) {
     if (!t.name) t.name = t.id;
     t.messages = Array.isArray(t.messages) ? t.messages : [];
     for (const m of t.messages) {
-      m.role = ['system', 'developer', 'user', 'assistant'].includes(m.role) ? m.role : 'user';
+      m.role = typeof m.role === 'string' && m.role ? m.role : 'user';
       m.content = typeof m.content === 'string' ? m.content : '';
     }
   }
@@ -223,11 +223,10 @@ function ensureSelections() {
   const templates = App.state.templates;
   const groups = App.state.draft.groups;
   if (!caseById(App.activeCaseId)) App.activeCaseId = cases.length ? cases[0].id : null;
-  if (!templateById(App.activeTemplateId)) App.activeTemplateId = templates.length ? templates[0].id : null;
   if (!groupById(App.activeGroupId)) App.activeGroupId = groups.length ? groups[0].id : null;
   const boundGroup = activeGroup();
   const boundTemplate = boundGroup ? templateById(boundGroup.template_id) : null;
-  if (boundTemplate) App.activeTemplateId = boundTemplate.id;
+  if (!templateById(App.activeTemplateId)) App.activeTemplateId = boundTemplate?.id || templates[0]?.id || null;
   const tpl = activeTemplate();
   const maxIndex = tpl && tpl.messages.length ? tpl.messages.length - 1 : 0;
   if (App.activeMessageIndex > maxIndex) App.activeMessageIndex = maxIndex;

@@ -2,6 +2,7 @@
 
 .range-panel .card-head { padding: 12px 18px; }
 .range-panel .card-title { font-size: 20px; }
+.range-panel { scroll-margin-top: 80px; }
 .range-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px 18px; }
 .range-head {
   display: flex;
@@ -50,7 +51,6 @@
 .tiny-icon .icon { width: 14px; height: 14px; }
 .range-formula { margin-top: 6px; font-size: 12.5px; font-family: var(--mono-font); color: var(--text); }
 .range-body .btn.full { min-height: 38px; margin-top: 8px; }
-.range-collapsed .btn { min-height: 38px; }
 .exclusion-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .exclude-chip {
   display: inline-flex;
