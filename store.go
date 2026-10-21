@@ -130,6 +130,9 @@ func (s *Store) state() (State, error) {
 func (s *Store) saveState(st State, updates map[string]CredentialUpdate) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.saveStateLocked(st, updates)
+}
+func (s *Store) saveStateLocked(st State, updates map[string]CredentialUpdate) (State, error) {
 	current, err := s.state()
 	if err != nil {
 		return st, err

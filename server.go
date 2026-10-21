@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -88,6 +89,9 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.frontend.ServeHTTP(w, r)
 		return
 	}
+	if a.packageAPI(w, r) || a.caseAPI(w, r) {
+		return
+	}
 	switch r.URL.Path {
 	case "/api/protocols":
 		if r.Method != "GET" {
@@ -112,11 +116,52 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sendJSON(w, 200, StateView{State: s, Credentials: a.store.credentialStatuses(s, a.engine.getenv)})
 			return
 		case "PUT":
-			var input StateWrite
-			if err := decode(w, r, &input); err != nil {
+			var raw json.RawMessage
+			if err := decode(w, r, &raw); err != nil {
 				fail(w, 400, errors.New("invalid state JSON"))
 				return
 			}
+			var header struct {
+				Version int64 `json:"version"`
+			}
+			if err := json.Unmarshal(raw, &header); err != nil {
+				fail(w, 400, errors.New("invalid state JSON"))
+				return
+			}
+			current, err := a.store.state()
+			if err != nil {
+				fail(w, 500, errors.New("could not read state"))
+				return
+			}
+			if current.Version != header.Version {
+				fail(w, 409, errStale)
+				return
+			}
+			var input StateWrite
+			d := json.NewDecoder(strings.NewReader(string(raw)))
+			d.UseNumber()
+			d.DisallowUnknownFields()
+			if err := d.Decode(&input); err != nil {
+				fail(w, 400, errors.New("invalid state JSON"))
+				return
+			}
+			var fields map[string]json.RawMessage
+			json.Unmarshal(raw, &fields)
+			for key, pair := range map[string][2]any{"cases": {input.Cases, current.Cases}, "collections": {input.Collections, current.Collections}} {
+				if _, present := fields[key]; present {
+					if key == "cases" && len(input.Cases) == 0 && len(current.Cases) == 0 || key == "collections" && len(input.Collections) == 0 && len(current.Collections) == 0 {
+						continue
+					}
+					supplied, _ := json.Marshal(pair[0])
+					stored, _ := json.Marshal(pair[1])
+					if !bytes.Equal(supplied, stored) {
+						fail(w, 400, fmt.Errorf("%s is read-only in PUT /api/state; use dedicated Case/Collection endpoints", key))
+						return
+					}
+				}
+			}
+			input.Cases = current.Cases
+			input.Collections = current.Collections
 			s, err := a.store.saveState(input.State, input.CredentialUpdates)
 			if err != nil {
 				fail(w, statusFor(err), err)
@@ -152,7 +197,7 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		sendJSON(w, 200, map[string]any{"request": f.Request, "raw_request": f.RawRequest, "endpoint": f.Endpoint, "protocol": f.Protocol, "method": f.Method, "headers": f.Headers, "prompt_hash": f.PromptHash})
+		sendJSON(w, 200, map[string]any{"request": f.Request, "raw_request": f.RawRequest, "endpoint": f.Endpoint, "protocol": f.Protocol, "method": f.Method, "headers": f.Headers, "prompt_hash": f.PromptHash, "language_resolution": f.LanguageResolution})
 		return
 	case "/api/runs":
 		switch r.Method {

@@ -12,57 +12,55 @@
 
 <header class="app-header">
   <div class="brand">
-    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 3h6M10 3v5.2L4.9 18a2.4 2.4 0 0 0 2.1 3.4h10a2.4 2.4 0 0 0 2.1-3.4L14 8.2V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M7.2 15h9.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 3h4M11 3v6l-4.4 8.2A2 2 0 0 0 8.4 20h7.2a2 2 0 0 0 1.8-2.8L13 9V3"/>
+      <path d="M8.2 15h7.6"/>
     </svg>
     <span class="brand-name">PROMPTBENCH</span>
   </div>
-  <div class="crumb" id="crumb">本地 Prompt 调试</div>
-  <div class="header-right">
-    <button type="button" class="btn tiny header-save" id="global-save-btn" title="保存整个草稿状态">保存草稿</button>
-    <span class="conn" id="conn-status"><span class="dot" aria-hidden="true"></span><span id="conn-text">连接中…</span></span>
-    <span class="version" id="state-version" title="服务端状态版本"></span>
-  </div>
+  <div class="crumb" id="crumb">ASR 多目标翻译 / 工作台</div>
 </header>
 
 <div class="app-shell">
   <aside class="sidebar" aria-label="侧栏">
     <nav class="nav-list" aria-label="页面导航">
       <button type="button" class="nav-item" data-view="workbench">
-        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14M3 10h14M3 15.5h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        实验项目
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3.5" width="14" height="13" rx="1.6"/><path d="M3 8h14M8.5 8v8.5"/></svg>
+        工作台
+      </button>
+      <button type="button" class="nav-item" data-view="cases">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 3.5h3v13H4zM8.5 3.5h3v13h-3zM13 4.2l2.8-.7 2.7 12.2-2.8.7z"/></svg>
+        Case 库
       </button>
       <button type="button" class="nav-item" data-view="history">
-        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5h8M5 6.5h10M4 9.5h12M4 12.5h12M5 15.5h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6a6.5 6.5 0 1 1-1 7"/><path d="M3 4v3.2h3.2M10 6.5V10l2.4 1.6"/></svg>
         运行记录
       </button>
       <button type="button" class="nav-item" data-view="providers">
-        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M4 10h12M4 14h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="6" r="1.8" fill="currentColor"/><circle cx="13" cy="10" r="1.8" fill="currentColor"/><circle cx="9" cy="14" r="1.8" fill="currentColor"/></svg>
-        Provider 管理
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6.2 14.5h8a3.2 3.2 0 0 0 .4-6.4 4.6 4.6 0 0 0-8.8-1.3A3.8 3.8 0 0 0 6.2 14.5z"/></svg>
+        Providers
       </button>
       <button type="button" class="nav-item" data-view="settings">
-        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v1.6M10 15.6v1.6M2.8 10h1.6M15.6 10h1.6M4.9 4.9l1.1 1.1M14 14l1.1 1.1M15.1 4.9L14 6M6 14l-1.1 1.1"/></svg>
         全局设置
       </button>
     </nav>
 
-    <section class="side-section" id="case-section" aria-labelledby="case-section-title">
+    <section class="side-section" id="collection-section" aria-labelledby="collection-section-title" hidden>
       <div class="side-head">
-        <h2 id="case-section-title">案例列表 <span class="count" id="case-count">0 / 0</span></h2>
-        <button type="button" class="link-btn" id="new-case-btn">＋ 新建 case</button>
+        <h2 id="collection-section-title">共享集合</h2>
+        <button type="button" class="icon-btn small-icon" id="new-collection-btn" title="新建集合" aria-label="新建集合">
+          <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.8 5.8h4l1.5 1.7h8.9v7.2a1.4 1.4 0 0 1-1.4 1.4H4.2a1.4 1.4 0 0 1-1.4-1.4z"/><path d="M10 10v4M8 12h4"/></svg>
+        </button>
       </div>
-      <p class="side-hint">勾选=参与本次运行；点击名称=编辑</p>
-      <div class="case-list" id="case-list"></div>
+      <div class="collection-list" id="collection-list"></div>
+      <button type="button" class="btn tiny manage-collections" id="manage-collections-btn">管理集合</button>
     </section>
 
-    <section class="side-section side-recent" aria-labelledby="recent-title">
-      <div class="side-head">
-        <h2 id="recent-title">最近运行</h2>
-        <button type="button" class="link-btn" id="refresh-runs-btn">刷新</button>
-      </div>
-      <div class="recent-runs" id="recent-runs"></div>
-    </section>
+    <div class="side-foot">
+      <span class="conn" id="conn-status"><span class="dot" aria-hidden="true"></span><span id="conn-text">连接中…</span></span>
+      <span class="version" id="state-version" title="服务端状态版本"></span>
+    </div>
   </aside>
 
   <main id="main" class="main">
@@ -75,38 +73,33 @@
     </div>
 
     <section class="view" id="view-workbench" aria-labelledby="workbench-title">
-      <div class="workbench-toolbar">
+      <div class="page-toolbar">
         <div class="toolbar-title">
-          <h1 id="workbench-title" class="page-title">Prompt 调试</h1>
+          <h1 id="workbench-title" class="page-title">翻译规则对照</h1>
           <div class="save-line">
             <span class="save-state" id="save-state">正在载入…</span>
-            <span class="muted-sep" aria-hidden="true">·</span>
+            <span class="muted-sep">·</span>
             <span class="muted" id="draft-meta">本地草稿</span>
+            <input id="draft-name" class="draft-name inline" type="text" autocomplete="off" placeholder="草稿名称" aria-label="草稿名称">
           </div>
         </div>
         <div class="toolbar-actions">
-          <div class="draft-name-wrap">
-            <label class="sr-only" for="draft-name">草稿名称</label>
-            <input id="draft-name" class="input draft-name" type="text" autocomplete="off" placeholder="草稿名称">
-          </div>
           <button type="button" class="btn" id="save-btn">保存草稿</button>
-          <button type="button" class="btn primary run-btn" id="run-btn" title="保存草稿并以当前选择启动批次">
-            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6.5 4.5v11l9-5.5z" fill="currentColor"/></svg>
-            <span id="run-btn-label">运行</span>
+          <button type="button" class="btn" id="range-open-btn">
+            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 4.5 14 10l-7.5 5.5z" stroke-linejoin="round"/></svg>
+            运行前确认
           </button>
         </div>
       </div>
 
-      <div class="workspace-grid">
-        <div class="center-col">
-          <section class="card editor-card" aria-labelledby="editor-title">
-            <div class="card-head editor-head">
-              <div class="editor-title-row">
-                <h2 id="editor-title" class="card-title">模板与变量</h2>
-                <label class="sr-only" for="template-select">当前模板</label>
-                <select class="input select" id="template-select"></select>
-                <label class="sr-only" for="template-name">模板名称</label>
-                <input class="input template-name" id="template-name" type="text" autocomplete="off" placeholder="模板名称">
+      <div class="wb-grid">
+        <div class="wb-main">
+          <section class="card editor-card">
+            <div class="card-head compact-head">
+              <div class="title-line">
+                <h2 class="card-title" id="editor-title">模板与变量</h2>
+                <select class="input select compact" id="template-select" aria-label="选择模板"></select>
+                <input class="input template-name" id="template-name" type="text" autocomplete="off" placeholder="模板名称" aria-label="模板名称">
                 <span class="mono muted template-id" id="template-id"></span>
               </div>
               <div class="btn-row">
@@ -115,171 +108,101 @@
                 <button type="button" class="btn tiny danger-text" id="del-template-btn">删除</button>
               </div>
             </div>
-
-            <div class="filetab-bar">
-              <div class="filetabs" role="tablist" aria-label="编辑器内容">
-                <button type="button" class="filetab" role="tab" id="tab-template" data-editor-tab="template" aria-controls="editor-template-panel" aria-selected="true">模板消息</button>
-                <button type="button" class="filetab" role="tab" id="tab-variables" data-editor-tab="variables" aria-controls="editor-variables-panel" aria-selected="false">case.variables.json</button>
-              </div>
-              <div class="editor-tools">
-                <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
-                <details class="menu" id="insert-var-menu">
-                  <summary class="btn tiny">插入变量</summary>
-                  <div class="menu-panel" id="insert-var-list"></div>
-                </details>
-                <span class="muted small" id="editor-context-label"></span>
-              </div>
+            <div class="editor-tools">
+              <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
+              <details class="menu" id="insert-var-menu">
+                <summary class="btn tiny">插入变量</summary>
+                <div class="menu-panel" id="insert-var-list"></div>
+              </details>
+              <span class="muted small" id="editor-context-label"></span>
             </div>
-
             <div class="editor-error" id="editor-render-error" role="alert" hidden></div>
-
-            <div class="editor-panel" id="editor-template-panel" role="tabpanel" aria-labelledby="tab-template">
-              <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
-              <div class="message-editor">
-                <label class="sr-only" for="message-content">消息内容</label>
-                <textarea id="message-content" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
-                <div class="editor-status">
-                  <label class="inline-field" for="message-role">角色
-                    <select id="message-role" class="input select compact">
-                      <option value="system">system · 系统</option>
-                      <option value="developer">developer · 开发者</option>
-                      <option value="user">user · 用户</option>
-                      <option value="assistant">assistant · 助手</option>
-                    </select>
-                  </label>
-                  <button type="button" class="btn tiny" id="add-message-btn">＋ 消息</button>
-                  <button type="button" class="btn tiny danger-text" id="del-message-btn">删除消息</button>
-                  <span class="status-spacer"></span>
-                  <span class="muted small" id="message-lineinfo">行 1，列 1</span>
-                  <span class="muted small">UTF-8</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="editor-panel" id="editor-variables-panel" role="tabpanel" aria-labelledby="tab-variables" hidden>
-              <div class="variable-help">
-                <span class="variable-help-label">常用字段</span>
-                <div class="chips" id="variable-chips"></div>
-                <span class="muted small">JSON 对象原样保存；可添加任意字段。</span>
-              </div>
-              <label class="sr-only" for="variables-json">案例输入变量 JSON</label>
-              <textarea id="variables-json" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
-              <div class="field-error" id="variables-error" role="alert"></div>
+            <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
+            <div class="message-editor">
+              <textarea id="message-content" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="模板消息内容"></textarea>
               <div class="editor-status">
-                <span class="muted small">变量仅随草稿保存，不会作为密钥处理。</span>
-                <span class="status-spacer"></span>
-                <span class="muted small" id="var-lineinfo">行 1，列 1</span>
-                <button type="button" class="btn tiny" id="format-vars-btn">格式化 JSON</button>
+                <label class="inline-field">
+                  <span>角色</span>
+                  <select id="message-role" class="input select compact"></select>
+                </label>
+                <button type="button" class="btn tiny" id="add-message-btn">＋ 消息</button>
+                <button type="button" class="btn tiny danger-text" id="del-message-btn">删除消息</button>
+                <span class="muted small" id="message-lineinfo">行 1，列 1</span>
               </div>
             </div>
           </section>
 
-          <section class="card groups-card" aria-labelledby="groups-title">
+          <section class="card case-preview-card" aria-labelledby="wb-case-title">
+            <div class="card-head compact-head">
+              <h2 class="card-title" id="wb-case-title">当前 Case 预览</h2>
+              <span class="mono muted" id="wb-case-id"></span>
+            </div>
+            <div id="wb-case-body" class="wb-case-body"></div>
+          </section>
+
+          <section class="card groups-card">
             <div class="card-head">
-              <div class="title-line">
-                <h2 class="card-title" id="groups-title">对照组配置</h2>
-                <span class="pill" id="group-enabled-count">0 个已启用</span>
-              </div>
+              <h2 class="card-title" id="groups-title">对照配置</h2>
+              <span class="pill" id="group-enabled-count">0 个已启用</span>
               <button type="button" class="btn tiny" id="add-group-btn">＋ 添加配置</button>
             </div>
-            <div class="table-wrap">
-              <table class="config-table">
-                <thead>
-                  <tr>
-                    <th scope="col">启用</th>
-                    <th scope="col">名称</th>
-                    <th scope="col">模板</th>
-                    <th scope="col">模型</th>
-                    <th scope="col">Provider</th>
-                    <th scope="col">温度</th>
-                    <th scope="col">思考强度</th>
-                    <th scope="col" class="num">每 case 次数</th>
-                    <th scope="col">操作</th>
-                  </tr>
-                </thead>
-                <tbody id="groups-body"></tbody>
-              </table>
-            </div>
-            <div class="groups-foot">
+            <div id="group-cards" class="group-cards"></div>
+            <div class="run-controls">
+              <label class="field compact-field"><span>全局并发</span><input class="input compact num-input" id="run-concurrency" type="number" min="1" max="20" step="1"></label>
+              <label class="field compact-field"><span>每 Case 默认次数</span><input class="input compact num-input" id="run-default-runs" type="number" min="1" max="1000" step="1"></label>
+              <div class="run-controls-spacer"></div>
               <div class="run-validation" id="run-validation" aria-live="polite"></div>
               <div class="total-line" id="total-line">选择案例并启用配置后开始运行</div>
+              <button type="button" class="btn primary run-btn" id="run-btn"><span id="run-btn-label">运行</span></button>
             </div>
           </section>
         </div>
 
-        <aside class="right-col" aria-label="运行配置与请求预览">
-          <section class="card config-card" aria-labelledby="cfg-title">
-            <div class="card-head compact-head">
-              <h2 class="card-title" id="cfg-title">运行配置</h2>
-              <button type="button" class="icon-btn" id="cfg-toggle" aria-expanded="true" aria-controls="cfg-body" title="折叠运行配置">
-                <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 12.5 10 7l5 5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <aside class="wb-side">
+          <section class="card range-panel" id="range-panel">
+            <div class="card-head">
+              <h2 class="card-title">选择本次运行范围</h2>
+              <button type="button" class="icon-btn" id="range-close" title="收起" aria-label="收起运行范围">
+                <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </button>
             </div>
-            <div id="cfg-body" class="config-body">
-              <label class="field">
-                <span>对照配置</span>
-                <select class="input select" id="cfg-group-select"></select>
-              </label>
-              <div class="two-col">
-                <label class="field">
-                  <span>Provider</span>
-                  <select class="input select" id="cfg-provider"></select>
-                </label>
-                <label class="field">
-                  <span>模型</span>
-                  <input class="input mono" id="cfg-model" type="text" list="model-suggestions" autocomplete="off" placeholder="模型 ID">
-                  <datalist id="model-suggestions"></datalist>
-                </label>
+            <div class="range-body">
+              <div class="range-head">
+                <span>已选共享集合</span>
+                <button type="button" class="btn tiny" id="range-collections-btn">调整集合</button>
               </div>
-              <p class="provider-hint" id="cfg-provider-hint"></p>
-              <div class="field">
-                <span>温度 Temperature</span>
-                <div class="param-row">
-                  <select class="input select compact" id="cfg-temp-mode" aria-label="温度参数处理方式">
-                    <option value="omit">未发送</option>
-                    <option value="value">数值</option>
-                    <option value="null">null</option>
-                  </select>
-                  <input class="input compact num-input" id="cfg-temp-value" type="number" step="0.1" aria-label="温度数值">
-                </div>
-              </div>
-              <div class="field">
-                <span>思考强度 Reasoning effort</span>
-                <div class="param-row">
-                  <select class="input select compact" id="cfg-reasoning-mode" aria-label="思考强度处理方式">
-                    <option value="omit">未发送</option>
-                    <option value="null">null</option>
-                    <option value="none">none</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                    <option value="custom" disabled>其他（见高级 JSON）</option>
-                  </select>
-                </div>
-              </div>
-              <button type="button" class="btn tiny full" id="edit-group-btn">编辑完整参数（高级 JSON）</button>
-              <p class="footnote">未发送 ≠ null；次数在对照表中编辑，并发见全局设置（硬上限 20，同时仅 1 个批次）。</p>
+              <div id="range-collections" class="range-collections"></div>
+              <div class="range-dedup" id="range-dedup">未选择集合</div>
+              <div id="range-explicit" class="range-explicit"></div>
+              <div class="range-head"><span>本次临时排除</span><span class="muted small" id="range-exclusion-count"></span></div>
+              <div id="range-exclusions" class="range-exclusions"></div>
+              <div class="range-total"><strong id="range-count">0</strong><span>个 Case</span></div>
+              <div class="range-head"><span>当前范围预览</span><button type="button" class="link-btn" id="range-viewall">查看全部</button></div>
+              <div id="range-preview" class="range-preview"></div>
+              <div class="range-formula" id="range-formula"></div>
+              <p class="field-error" id="range-error" role="alert"></p>
+              <button type="button" class="btn primary full" id="range-apply">应用到本次调试</button>
             </div>
           </section>
+          <div class="range-collapsed" id="range-collapsed" hidden>
+            <button type="button" class="btn full" id="range-reopen">选择本次运行范围</button>
+          </div>
 
-          <section class="card preview-card" aria-labelledby="preview-title">
+          <section class="card preview-card">
             <div class="card-head compact-head">
-              <div class="title-line">
-                <h2 class="card-title" id="preview-title">实际请求预览</h2>
-                <span class="pill subtle" id="preview-state">未预览</span>
-              </div>
-              <div class="btn-row">
-                <button type="button" class="btn tiny" id="refresh-preview-btn">刷新预览</button>
-                <button type="button" class="btn tiny" id="copy-preview-btn">复制</button>
-              </div>
+              <h2 class="card-title" id="preview-title">实际请求预览</h2>
+              <span class="pill subtle" id="preview-state">未预览</span>
+              <button type="button" class="btn tiny" id="refresh-preview-btn">刷新预览</button>
+              <button type="button" class="btn tiny" id="copy-preview-btn">复制</button>
             </div>
             <div class="preview-meta">
               <div><span class="preview-label">Protocol</span><span class="mono preview-value" id="preview-protocol">—</span></div>
               <div><span class="preview-label">Request</span><span class="mono preview-value" id="preview-endpoint">—</span></div>
               <div><span class="preview-label">Prompt hash</span><span class="mono preview-value" id="preview-hash">—</span></div>
+              <div><span class="preview-label">语言</span><span class="mono preview-value" id="preview-language">—</span></div>
             </div>
             <details class="preview-extra" id="preview-extra" hidden>
-              <summary>非认证请求头与原始发送正文</summary>
+              <summary>请求头与精确字节</summary>
               <div class="preview-extra-body">
                 <div class="raw-block"><h4>Headers（无认证头）</h4><pre id="preview-headers"></pre></div>
                 <div class="raw-block"><h4>raw_request（精确字节）</h4><pre id="preview-raw-request"></pre></div>
@@ -293,7 +216,7 @@
 
       <section class="card output-card" aria-labelledby="output-title">
         <div class="output-head">
-          <div class="filetabs" role="tablist" aria-label="输出面板">
+          <div class="filetabs" role="tablist" aria-label="运行输出">
             <button type="button" class="filetab" role="tab" id="out-tab-results" data-output-tab="results" aria-selected="true">运行输出</button>
             <button type="button" class="filetab" role="tab" id="out-tab-snapshot" data-output-tab="snapshot" aria-selected="false">批次快照</button>
           </div>
@@ -303,32 +226,24 @@
               <div class="progress-fill" id="progress-fill"></div>
             </div>
             <span class="mono small" id="progress-text">0 / 0</span>
-            <button type="button" class="btn tiny danger" id="stop-btn" hidden>
-              <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1" fill="currentColor"/></svg>
-              停止运行
-            </button>
           </div>
+          <button type="button" class="btn tiny danger" id="stop-btn" hidden>停止运行</button>
         </div>
         <div class="output-toolbar" id="output-toolbar">
-          <label class="inline-field" for="filter-group">组
-            <select class="input select compact" id="filter-group"><option value="">全部</option></select>
-          </label>
-          <label class="inline-field" for="filter-case">Case
-            <select class="input select compact" id="filter-case"><option value="">全部</option></select>
-          </label>
-          <label class="inline-field" for="filter-status">状态
+          <label class="inline-field"><span>配置</span><select class="input select compact" id="filter-group"><option value="">全部</option></select></label>
+          <label class="inline-field"><span>Case</span><select class="input select compact" id="filter-case"><option value="">全部</option></select></label>
+          <label class="inline-field"><span>状态</span>
             <select class="input select compact" id="filter-status">
               <option value="">全部</option>
               <option value="completed">成功</option>
+              <option value="failed">失败</option>
               <option value="running">运行中</option>
               <option value="pending">待运行</option>
-              <option value="failed">失败</option>
               <option value="cancelled">已取消</option>
               <option value="interrupted">结果未知</option>
             </select>
           </label>
           <span class="muted small" id="result-count"></span>
-          <span class="status-spacer"></span>
           <span class="muted small" id="batch-meta"></span>
           <button type="button" class="btn tiny" id="reload-run-btn">刷新</button>
         </div>
@@ -343,8 +258,309 @@
       </section>
     </section>
 
+    <section class="view" id="view-cases" aria-labelledby="library-title" hidden>
+      <div class="page-toolbar">
+        <div class="toolbar-title">
+          <h1 id="library-title" class="page-title">全部 Case</h1>
+          <div class="collection-actions" id="library-collection-actions" hidden>
+            <button type="button" class="btn tiny" id="rename-collection-btn">重命名</button>
+            <button type="button" class="btn tiny danger-text" id="delete-collection-btn">删除集合</button>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn" id="open-import-btn">导入</button>
+          <button type="button" class="btn" id="open-export-btn">导出</button>
+          <button type="button" class="btn primary" id="new-case-btn">＋ 新建 Case</button>
+        </div>
+      </div>
+
+      <div class="library-toolbar">
+        <div class="search-box">
+          <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="5.2"/><path d="m12.8 12.8 3.7 3.7"/></svg>
+          <input id="library-search" class="input" type="search" autocomplete="off" placeholder="搜索 Case ID 或 CurrentText…" aria-label="搜索 Case">
+        </div>
+        <label class="inline-field source-filter"><span>源语言</span><select class="input select compact" id="library-source"></select></label>
+        <span class="muted library-result-count" id="library-result-count">0 个结果</span>
+      </div>
+
+      <div class="selection-bar" id="library-selection-bar">
+        <span class="selection-counts" id="library-page-count">已选本页 0 / 0</span>
+        <button type="button" class="link-btn" id="library-select-all">选择全部 0 个匹配结果</button>
+        <span class="selection-spacer"></span>
+        <button type="button" class="btn tiny" id="library-join">加入集合</button>
+        <button type="button" class="btn tiny" id="library-leave">移出当前集合</button>
+        <button type="button" class="btn tiny" id="library-export">导出</button>
+        <button type="button" class="btn tiny primary" id="library-debug">用于调试</button>
+        <button type="button" class="link-btn" id="library-clear">清空</button>
+      </div>
+
+      <div class="table-wrap library-table-wrap">
+        <table class="data-table case-table">
+          <thead>
+            <tr>
+              <th scope="col" class="check-col"><input type="checkbox" id="library-page-check" aria-label="选择本页全部 Case"></th>
+              <th scope="col">Case ID</th>
+              <th scope="col">当前 ASR · CurrentText</th>
+              <th scope="col">源语言</th>
+              <th scope="col">所属共享集合</th>
+              <th scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody id="library-body"></tbody>
+        </table>
+      </div>
+
+      <div class="library-pager">
+        <span class="muted" id="library-range">显示 0–0 / 0 个 Case</span>
+        <div class="pager-controls">
+          <span class="muted small">每页 8 条</span>
+          <button type="button" class="btn tiny" id="library-prev">上一页</button>
+          <button type="button" class="btn tiny pager-page" id="library-page">1</button>
+          <button type="button" class="btn tiny" id="library-next">下一页</button>
+          <span class="muted small" id="library-pages">共 1 页</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-case-editor" aria-labelledby="case-editor-title" hidden>
+      <div class="page-toolbar">
+        <div class="toolbar-title">
+          <h1 id="case-editor-title" class="page-title">编辑 Case</h1>
+        </div>
+        <div class="toolbar-actions mode-seg" role="tablist" aria-label="Case 编辑方式">
+          <button type="button" class="btn mode-btn" id="case-mode-form" role="tab" aria-selected="true">表单</button>
+          <button type="button" class="btn mode-btn" id="case-mode-json" role="tab" aria-selected="false">高级 JSON</button>
+        </div>
+      </div>
+
+      <p class="field-error case-editor-error" id="case-editor-error" role="alert"></p>
+
+      <div id="case-form-panel" class="case-editor-grid">
+        <div class="case-editor-main">
+          <div class="field">
+            <span>Case ID</span>
+            <div class="id-row">
+              <input class="input mono readonly-input" id="case-id-readonly" type="text" readonly aria-label="Case ID">
+              <button type="button" class="btn tiny" id="case-copy-id">复制完整 ID</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label-row"><span>CurrentText · 当前 ASR 文本</span><button type="button" class="btn tiny" id="case-paste-current">粘贴</button></div>
+            <textarea class="code-editor case-textarea" id="case-current" spellcheck="false" placeholder="当前待处理文本"></textarea>
+          </div>
+          <div class="field">
+            <div class="field-label-row"><span>PriorText · 前文上下文</span><button type="button" class="btn tiny" id="case-paste-prior">粘贴</button></div>
+            <textarea class="code-editor case-textarea tall" id="case-prior" spellcheck="false" placeholder="前文上下文"></textarea>
+          </div>
+          <details class="case-disclosure" id="case-replacement-details" open>
+            <summary><span>ReplacementMap · 可选</span><span class="type-tag" id="case-replacement-type">未设置</span></summary>
+            <textarea class="code-editor" id="case-replacement" spellcheck="false" placeholder="添加替换规则…"></textarea>
+          </details>
+          <details class="case-disclosure" id="case-extra-details">
+            <summary><span>其他变量</span><span class="type-tag" id="case-extra-count">0</span></summary>
+            <div id="case-extra-list" class="extra-list"></div>
+            <div class="extra-add">
+              <input class="input mono" id="case-extra-key" type="text" placeholder="变量名" autocomplete="off">
+              <textarea class="code-editor extra-value" id="case-extra-value" spellcheck="false" placeholder="JSON 值，例如 &quot;text&quot; 或 { }"></textarea>
+              <button type="button" class="btn tiny" id="case-extra-add-btn">添加变量</button>
+            </div>
+          </details>
+        </div>
+        <aside class="case-editor-side">
+          <div class="field">
+            <span>源语言</span>
+            <input class="input mono" id="case-source-language" type="text" autocomplete="off" placeholder="zh-CN">
+          </div>
+          <section class="collection-membership">
+            <h2>所属集合</h2>
+            <div id="case-collections" class="collection-checks"></div>
+          </section>
+        </aside>
+      </div>
+
+      <div id="case-json-panel" hidden>
+        <div class="field">
+          <div class="field-label-row"><span>Case.variables JSON</span><span class="muted small">键顺序会由后端规范化；文本、换行与值类型原样保留</span></div>
+          <textarea class="code-editor case-json-editor" id="case-vars-json" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+          <p class="field-error" id="case-json-error" role="alert"></p>
+          <button type="button" class="btn tiny danger-text" id="case-remove-prohibited" hidden>移除禁用字段</button>
+        </div>
+      </div>
+
+      <div class="case-save-bar">
+        <span class="save-impact" id="case-save-impact"></span>
+        <div class="save-bar-actions">
+          <button type="button" class="btn tiny danger-text" id="case-delete-btn" hidden>删除 Case</button>
+          <button type="button" class="btn" id="case-cancel-btn">取消</button>
+          <button type="button" class="btn" id="case-copy-btn">复制为新 Case</button>
+          <button type="button" class="btn primary" id="case-save-btn">保存</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-case-io" aria-labelledby="io-title" hidden>
+      <div class="page-toolbar">
+        <div class="toolbar-title"><h1 id="io-title" class="page-title">导入与导出 Case</h1></div>
+      </div>
+      <div class="io-grid">
+        <div class="io-main">
+          <section class="card file-card">
+            <div class="file-summary">
+              <svg class="icon file-icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5 2.8h6l4 4v10.4H5z"/><path d="M11 2.8v4h4"/></svg>
+              <div class="file-info">
+                <strong id="io-file-name">未选择文件</strong>
+                <span class="muted small" id="io-file-summary">选择 JSON 或 JSONL 标准包</span>
+              </div>
+              <div class="file-actions">
+                <input type="file" id="io-file-input" accept=".json,.jsonl,application/json,application/x-ndjson" hidden>
+                <button type="button" class="btn tiny" id="io-choose-file">选择文件</button>
+                <button type="button" class="btn tiny" id="io-example-json" hidden>示例</button>
+              </div>
+            </div>
+            <div class="io-target-row">
+              <label class="inline-field"><span>目标集合（追加）</span><select class="input select" id="io-target-collection"></select></label>
+            </div>
+            <details class="io-paste">
+              <summary>粘贴 JSON / JSONL</summary>
+              <textarea class="code-editor io-paste-area" id="io-paste-text" spellcheck="false" placeholder="粘贴标准包内容"></textarea>
+              <button type="button" class="btn tiny" id="io-parse-paste">解析粘贴内容</button>
+            </details>
+          </section>
+
+          <div class="io-counts" id="io-counts">
+            <span class="io-new"><strong>0</strong> 新增</span>
+            <span class="io-existing"><strong>0</strong> 已存在</span>
+            <span class="muted small" id="io-collection-count"></span>
+          </div>
+
+          <div class="io-error-row">
+            <p class="field-error" id="io-error" role="alert"></p>
+            <button type="button" class="btn tiny" id="io-recover-btn" hidden>重新载入并解析</button>
+          </div>
+
+          <div class="table-wrap io-preview-wrap">
+            <table class="data-table io-preview-table">
+              <thead><tr><th scope="col">Case ID · CurrentText 摘录</th><th scope="col">结果</th><th scope="col">写入动作</th></tr></thead>
+              <tbody id="io-preview-body"></tbody>
+            </table>
+          </div>
+          <button type="button" class="link-btn io-expand" id="io-expand" hidden></button>
+
+          <div class="io-actions">
+            <button type="button" class="btn" id="io-cancel-btn">取消</button>
+            <button type="button" class="btn primary" id="io-commit-btn">确认导入</button>
+          </div>
+        </div>
+
+        <aside class="card export-card">
+          <div class="export-title">
+            <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10 3v8.2M6.8 8.4 10 11.8l3.2-3.4M4 13v2.6h12V13"/></svg>
+            <h2 class="card-title">导出 Case</h2>
+          </div>
+          <div class="field">
+            <span>导出范围</span>
+            <label class="radio-row"><input type="radio" name="export-range" value="cases" id="export-range-cases"> <span id="export-cases-label">所选 Case · 0 项</span></label>
+            <label class="radio-row"><input type="radio" name="export-range" value="collections" id="export-range-collections"> <span id="export-collections-label">选定集合 · 0 个</span></label>
+            <div class="export-collection-list" id="export-collection-list" hidden></div>
+          </div>
+          <div class="field">
+            <span>文件格式</span>
+            <div class="segmented" role="radiogroup" aria-label="导出格式">
+              <button type="button" class="seg-btn" data-export-format="json" aria-pressed="false">JSON</button>
+              <button type="button" class="seg-btn" data-export-format="jsonl" aria-pressed="true">JSONL</button>
+            </div>
+          </div>
+          <label class="check-row"><input type="checkbox" id="export-memberships" checked> 包含集合成员关系</label>
+          <p class="field-error" id="export-error" role="alert"></p>
+          <button type="button" class="btn full export-btn" id="export-btn">导出 JSONL</button>
+        </aside>
+      </div>
+    </section>
+
+    <section class="view" id="view-group-editor" aria-labelledby="group-editor-title" hidden>
+      <div class="page-toolbar">
+        <div class="toolbar-title"><h1 id="group-editor-title" class="page-title">编辑对照配置</h1></div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn tiny danger-text" id="group-delete-btn">删除配置</button>
+          <button type="button" class="btn" id="group-cancel-btn">取消</button>
+          <button type="button" class="btn primary" id="group-save-btn">保存配置</button>
+        </div>
+      </div>
+      <p class="field-error" id="group-editor-error" role="alert"></p>
+      <div class="group-editor-grid">
+        <div class="group-editor-main">
+          <section class="config-section">
+            <h2>基本配置</h2>
+            <div class="basic-grid">
+              <label class="field"><span>配置名称</span><input class="input" id="ge-name" type="text" autocomplete="off"></label>
+              <label class="field"><span>模板</span><select class="input select" id="ge-template"></select></label>
+              <label class="field"><span>Provider</span><select class="input select" id="ge-provider"></select></label>
+              <label class="field"><span>模型</span><input class="input mono" id="ge-model" type="text" list="model-suggestions" autocomplete="off"></label>
+            </div>
+            <label class="check-row"><input type="checkbox" id="ge-enabled"> 启用该配置</label>
+          </section>
+
+          <section class="config-section">
+            <h2>请求参数</h2>
+            <div class="param-grid">
+              <div class="field">
+                <span>温度</span>
+                <div class="param-inline">
+                  <div class="segmented compact-seg" role="radiogroup" aria-label="温度参数处理方式">
+                    <button type="button" class="seg-btn" data-temp-mode="omit">不发送</button>
+                    <button type="button" class="seg-btn" data-temp-mode="value">数值</button>
+                    <button type="button" class="seg-btn" data-temp-mode="null">null</button>
+                  </div>
+                  <input class="input compact num-input" id="ge-temp-value" type="number" step="0.1" aria-label="温度数值">
+                </div>
+              </div>
+              <label class="field"><span>思考强度</span>
+                <select class="input select" id="ge-reasoning-mode">
+                  <option value="omit">不发送</option>
+                  <option value="null">null</option>
+                  <option value="none">none</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="custom" disabled>其他（高级 JSON）</option>
+                </select>
+              </label>
+              <label class="field"><span>每 Case 次数</span><input class="input num-input" id="ge-runs" type="number" min="1" max="1000" step="1"></label>
+            </div>
+            <details class="advanced-params">
+              <summary>高级参数 JSON</summary>
+              <textarea class="code-input params-input" id="ge-params" spellcheck="false"></textarea>
+              <small>完整参数对象，保留任意未支持的字段；不能包含 model、messages、stream。上方快捷控件会同步到这里。</small>
+            </details>
+          </section>
+
+          <section class="config-section">
+            <h2>源语言路由</h2>
+            <div class="route-head"><span>源语言</span><span>目标语言 / 响应键</span></div>
+            <div class="route-table" id="route-rows"></div>
+            <div class="route-fallback">
+              <span class="route-source-static">未匹配</span>
+              <span class="route-arrow" aria-hidden="true">→</span>
+              <span class="route-fallback-target">en · English</span>
+            </div>
+            <button type="button" class="btn tiny add-route" id="add-route-btn">＋ 添加源语言</button>
+          </section>
+        </div>
+
+        <aside class="card match-preview">
+          <h2 class="card-title">匹配预览</h2>
+          <div class="table-wrap">
+            <table class="data-table match-table">
+              <thead><tr><th scope="col">源语言</th><th scope="col">目标语言</th><th scope="col">状态</th></tr></thead>
+              <tbody id="match-body"></tbody>
+            </table>
+          </div>
+        </aside>
+      </div>
+    </section>
+
     <section class="view" id="view-history" aria-labelledby="history-title" hidden>
-      <div class="workbench-toolbar">
+      <div class="page-toolbar">
         <div class="toolbar-title">
           <h1 id="history-title" class="page-title">运行记录</h1>
           <div class="save-line"><span class="muted" id="history-meta">持久化批次历史</span></div>
@@ -354,31 +570,24 @@
         </div>
       </div>
       <div id="history-list-view" class="history-layout">
-        <section class="card history-list-card" aria-labelledby="history-list-title">
+        <section class="card history-list-card">
           <div class="card-head">
-            <div class="title-line">
-              <h2 class="card-title" id="history-list-title">所有批次</h2>
-              <span class="pill" id="history-count">0</span>
-            </div>
+            <h2 class="card-title" id="history-list-title">所有批次</h2>
+            <span class="pill" id="history-count">0</span>
             <button type="button" class="btn tiny primary" id="compare-btn" disabled>对比选中</button>
           </div>
-          <p class="card-hint">勾选 2–6 个批次进行并排对比；点击批次查看快照与结果。</p>
           <div class="run-list" id="history-run-list"></div>
         </section>
-        <section class="card history-detail-card" aria-labelledby="history-detail-title">
+        <section class="card history-detail-card">
           <div class="empty-state" id="history-detail-empty">选择一个批次查看详情。</div>
           <div id="history-detail" hidden></div>
         </section>
       </div>
       <div id="compare-view" class="card compare-card" hidden>
         <div class="card-head">
-          <div class="title-line">
-            <h2 class="card-title">历史批次并排对比</h2>
-            <span class="pill" id="compare-count"></span>
-          </div>
-          <div class="btn-row">
-            <button type="button" class="btn tiny" id="compare-back-btn">返回历史</button>
-          </div>
+          <h2 class="card-title">批次对比</h2>
+          <span class="pill" id="compare-count"></span>
+          <button type="button" class="btn tiny" id="compare-back-btn">返回历史</button>
         </div>
         <p class="card-hint">按 case × 配置展示冻结请求参数与每次输出；仅呈现原始结果，不做质量评分。</p>
         <div id="compare-body"></div>
@@ -386,7 +595,7 @@
     </section>
 
     <section class="view" id="view-providers" aria-labelledby="providers-title" hidden>
-      <div class="workbench-toolbar">
+      <div class="page-toolbar">
         <div class="toolbar-title">
           <h1 id="providers-title" class="page-title">Provider 管理</h1>
           <div class="save-line"><span class="muted">协议类型由服务端目录提供；手动密钥仅提交到本机后端并加密保存，留空则使用环境变量回退。</span></div>
@@ -409,7 +618,7 @@
     </section>
 
     <section class="view" id="view-settings" aria-labelledby="settings-title" hidden>
-      <div class="workbench-toolbar">
+      <div class="page-toolbar">
         <div class="toolbar-title">
           <h1 id="settings-title" class="page-title">全局设置</h1>
           <div class="save-line"><span class="muted">随草稿保存，作用于新配置与新批次。</span></div>
@@ -421,7 +630,7 @@
           <label class="field">
             <span>默认每 case 次数</span>
             <input class="input" id="setting-default-runs" type="number" min="1" max="1000" step="1">
-            <small>新建对照组时的初始次数（1–1000）。</small>
+            <small>新建对照组时的初始次数（1–1000）；已有配置不会被改写。</small>
           </label>
           <label class="field">
             <span>全局并发上限</span>
@@ -439,7 +648,7 @@
           <h3>运行语义</h3>
           <ul>
             <li>同一时间只允许一个批次运行；批次内的多个对照组交错派发，共享并发上限。</li>
-            <li>批次启动时冻结 case、模板、参数与渲染请求；之后保存草稿不会改变已启动批次。</li>
+            <li>批次启动时冻结 case、模板、参数、语言路由与渲染请求；之后保存草稿不会改变已启动批次。</li>
             <li>停止后不再派发新请求，在途请求会完成并保留结果；刷新页面不会停止批次。</li>
             <li>无自动重试。失败会保留原始错误，结果未知（interrupted）不会被当作成功。</li>
           </ul>
@@ -451,76 +660,85 @@
 
 <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="false"></div>
 
-<dialog class="modal" id="case-dialog" aria-labelledby="case-dialog-title">
-  <form method="dialog" id="case-form" novalidate>
+<dialog class="modal" id="collection-dialog" aria-labelledby="collection-dialog-title">
+  <form method="dialog" id="collection-form" novalidate>
     <div class="modal-head">
-      <h2 id="case-dialog-title">新建 case</h2>
-      <button type="button" class="icon-btn" data-close-dialog="case-dialog" aria-label="关闭">✕</button>
+      <h2 id="collection-dialog-title">新建集合</h2>
+      <button type="button" class="icon-btn" data-close-dialog="collection-dialog" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
-      <label class="field"><span>Case ID</span><input class="input mono" id="case-id" type="text" autocomplete="off" spellcheck="false" placeholder="water_ecology"><small>唯一标识，创建后不可修改；用于运行选择与历史。</small></label>
-      <label class="field"><span>名称</span><input class="input" id="case-name" type="text" autocomplete="off" placeholder="水生态治理"></label>
-      <label class="field"><span>描述（可选）</span><input class="input" id="case-desc" type="text" autocomplete="off"></label>
-      <label class="field"><span>变量 JSON</span><textarea class="code-input" id="case-variables" spellcheck="false"></textarea><small>任意 JSON 对象；由 Go 模板读取，前端不做模板渲染。</small></label>
-      <label class="check-row" id="case-select-row"><input type="checkbox" id="case-add-selection"> 同时加入本次运行选择</label>
-      <p class="field-error" id="case-error" role="alert"></p>
+      <label class="field"><span>集合名称</span><input class="input" id="collection-name" type="text" autocomplete="off" placeholder="例如：节日与劳动"><small>集合是 Case 的人工共享引用；删除集合不会删除 Case。</small></label>
+      <p class="field-error" id="collection-error" role="alert"></p>
     </div>
     <div class="modal-foot">
-      <div class="btn-row" id="case-foot-actions">
-        <button type="button" class="btn tiny" id="case-duplicate-btn" hidden>复制为新 case</button>
-        <button type="button" class="btn tiny danger-text" id="case-delete-btn" hidden>删除 case</button>
-      </div>
-      <div class="btn-row">
-        <button type="button" class="btn" data-close-dialog="case-dialog">取消</button>
-        <button type="submit" class="btn primary" id="case-submit">保存 case</button>
-      </div>
+      <button type="button" class="btn" data-close-dialog="collection-dialog">取消</button>
+      <button type="submit" class="btn primary" id="collection-submit">保存</button>
     </div>
   </form>
 </dialog>
 
-<dialog class="modal wide" id="group-dialog" aria-labelledby="group-dialog-title">
-  <form method="dialog" id="group-form" novalidate>
+<dialog class="modal" id="manage-collections-dialog" aria-labelledby="manage-collections-title">
+  <div class="modal-head">
+    <h2 id="manage-collections-title">管理集合</h2>
+    <button type="button" class="icon-btn" data-close-dialog="manage-collections-dialog" aria-label="关闭">✕</button>
+  </div>
+  <div class="modal-body">
+    <div id="manage-collections-list" class="manage-collections-list"></div>
+    <button type="button" class="btn tiny" id="manage-new-collection">＋ 新建集合</button>
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn" data-close-dialog="manage-collections-dialog">关闭</button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="join-collection-dialog" aria-labelledby="join-collection-title">
+  <div class="modal-head">
+    <h2 id="join-collection-title">加入集合</h2>
+    <button type="button" class="icon-btn" data-close-dialog="join-collection-dialog" aria-label="关闭">✕</button>
+  </div>
+  <div class="modal-body">
+    <p class="muted small" id="join-collection-meta"></p>
+    <div id="join-collection-list" class="join-list"></div>
+    <p class="field-error" id="join-collection-error" role="alert"></p>
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn" data-close-dialog="join-collection-dialog">取消</button>
+    <button type="button" class="btn primary" id="join-collection-confirm">加入</button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="range-collections-dialog" aria-labelledby="range-collections-title">
+  <div class="modal-head">
+    <h2 id="range-collections-title">调整共享集合</h2>
+    <button type="button" class="icon-btn" data-close-dialog="range-collections-dialog" aria-label="关闭">✕</button>
+  </div>
+  <div class="modal-body">
+    <div id="range-collections-list" class="join-list"></div>
+    <p class="muted small" id="range-collections-summary"></p>
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn" data-close-dialog="range-collections-dialog">取消</button>
+    <button type="button" class="btn primary" id="range-collections-apply">应用集合</button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="target-dialog" aria-labelledby="target-dialog-title">
+  <form method="dialog" id="target-form" novalidate>
     <div class="modal-head">
-      <h2 id="group-dialog-title">添加对照配置</h2>
-      <button type="button" class="icon-btn" data-close-dialog="group-dialog" aria-label="关闭">✕</button>
+      <h2 id="target-dialog-title">添加目标语言</h2>
+      <button type="button" class="icon-btn" data-close-dialog="target-dialog" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
       <div class="form-grid">
-        <label class="field"><span>名称</span><input class="input" id="group-name" type="text" autocomplete="off" placeholder="对照 A"></label>
-        <label class="field"><span>每 case 次数</span><input class="input" id="group-runs" type="number" min="1" max="1000" step="1"></label>
+        <label class="field"><span>响应键</span><input class="input mono" id="target-key" type="text" autocomplete="off" placeholder="jp"></label>
+        <label class="field"><span>语言名称</span><input class="input" id="target-name" type="text" autocomplete="off" placeholder="Japanese"></label>
       </div>
-      <label class="check-row"><input type="checkbox" id="group-enabled"> 启用该配置</label>
-      <div class="form-grid">
-        <label class="field"><span>模板</span><select class="input select" id="group-template"></select></label>
-        <label class="field"><span>Provider</span><select class="input select" id="group-provider"></select></label>
-      </div>
-      <label class="field"><span>模型 ID（自由输入，不使用硬编码允许列表）</span><input class="input mono" id="group-model" type="text" list="model-suggestions" autocomplete="off"></label>
-      <div class="form-grid">
-        <div class="field"><span>温度</span>
-          <div class="param-row">
-            <select class="input select compact" id="group-temp-mode" aria-label="温度参数处理方式">
-              <option value="omit">未发送</option><option value="value">数值</option><option value="null">null</option>
-            </select>
-            <input class="input compact num-input" id="group-temp-value" type="number" step="0.1" aria-label="温度数值">
-          </div>
-        </div>
-        <div class="field"><span>思考强度</span>
-          <div class="param-row">
-            <select class="input select compact" id="group-reasoning-mode" aria-label="思考强度处理方式">
-              <option value="omit">未发送</option><option value="null">null</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="custom" disabled>其他（见高级 JSON）</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      <label class="field"><span>高级参数 JSON</span>
-        <textarea class="code-input params-input" id="group-params" spellcheck="false"></textarea>
-        <small>完整参数对象，保留任意未支持的字段；不能包含 model、messages、stream。上方温度/思考强度会同步到这里。</small>
-      </label>
-      <p class="field-error" id="group-error" role="alert"></p>
+      <p class="muted small">响应键保留原样，不会把 jp 自动改成 ja。名称是模板中的显示名。</p>
+      <p class="field-error" id="target-error" role="alert"></p>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn" data-close-dialog="group-dialog">取消</button>
-      <button type="submit" class="btn primary">保存配置</button>
+      <button type="button" class="btn" data-close-dialog="target-dialog">取消</button>
+      <button type="submit" class="btn primary">添加</button>
     </div>
   </form>
 </dialog>
@@ -581,6 +799,10 @@
   </form>
 </dialog>
 
+<datalist id="model-suggestions"></datalist>
+<datalist id="route-source-options"></datalist>
+
 <script src="app.js" defer></script>
+<script src="case.js" defer></script>
 </body>
 </html>

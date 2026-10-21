@@ -360,7 +360,7 @@ func TestLegacyMigrationPreservesUserHistoryBytesAndReplay(t *testing.T) {
 	}
 	old := oneCase(fixtureState(provider.URL))
 	old.Version = 7
-	old.Cases[0].Name = "USER EDIT preserved"
+	old.Cases[0].Variables["UserEdit"] = "USER EDIT preserved"
 	stateMap := map[string]any{}
 	json.Unmarshal([]byte(mustJSON(t, old)), &stateMap)
 	for _, p := range stateMap["providers"].([]any) {
@@ -394,7 +394,7 @@ func TestLegacyMigrationPreservesUserHistoryBytesAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migrated.Version != 8 || migrated.Cases[0].Name != "USER EDIT preserved" || migrated.Providers[0].Protocol != openAIChatProtocol {
+	if migrated.Version != 8 || migrated.Cases[0].Variables["UserEdit"] != "USER EDIT preserved" || migrated.Providers[0].Protocol != openAIChatProtocol {
 		t.Fatal("state migration lost edits")
 	}
 	var actual string
@@ -489,12 +489,11 @@ func TestFutureDatabaseVersionRejectedWithoutDroppingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := s.state()
-	if err != nil {
+	var before string
+	if err = s.db.QueryRow("SELECT data FROM state WHERE id=1").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	before := mustJSON(t, st)
-	if _, err = s.db.Exec("PRAGMA user_version=3"); err != nil {
+	if _, err = s.db.Exec("PRAGMA user_version=4"); err != nil {
 		t.Fatal(err)
 	}
 	s.close()
@@ -517,7 +516,7 @@ func TestFutureDatabaseVersionRejectedWithoutDroppingState(t *testing.T) {
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if after != before || version != 3 {
+	if after != before || version != 4 {
 		t.Fatal("future state downgraded or reset")
 	}
 }

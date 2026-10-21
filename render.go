@@ -45,6 +45,9 @@ func validateGroup(g Group) error {
 			return fmt.Errorf("parameter %q may contain credentials; use provider credentials", k)
 		}
 	}
+	if err := validateRoutes(g.LanguageRoutes); err != nil {
+		return err
+	}
 	return nil
 }
 func validateState(s State) error {
@@ -55,10 +58,30 @@ func validateState(s State) error {
 	templates := map[string]bool{}
 	providers := map[string]bool{}
 	for _, c := range s.Cases {
-		if !validID(c.ID) || cases[c.ID] || strings.TrimSpace(c.Name) == "" || c.Variables == nil {
-			return fmt.Errorf("cases require unique id, name and variables object")
+		if !validID(c.ID) || cases[c.ID] {
+			return fmt.Errorf("cases require unique ids")
+		}
+		if err := validateVariables(c.Variables); err != nil {
+			return err
 		}
 		cases[c.ID] = true
+	}
+	collectionIDs := map[string]bool{}
+	for _, c := range s.Collections {
+		if !validID(c.ID) || collectionIDs[c.ID] || strings.TrimSpace(c.Name) == "" {
+			return fmt.Errorf("collections require unique ids and a name")
+		}
+		collectionIDs[c.ID] = true
+		seen := map[string]bool{}
+		for _, id := range c.CaseIDs {
+			if !cases[id] || seen[id] {
+				return fmt.Errorf("collection case ids must exist and be unique")
+			}
+			seen[id] = true
+		}
+	}
+	if _, err := resolveSelection(s, Selection{CaseIDs: s.Draft.CaseIDs, CollectionIDs: s.Draft.CollectionIDs, ExcludedCaseIDs: s.Draft.ExcludedCaseIDs}); err != nil {
+		return err
 	}
 	for _, t := range s.Templates {
 		if !validID(t.ID) || templates[t.ID] || strings.TrimSpace(t.Name) == "" || len(t.Messages) == 0 {
@@ -147,6 +170,19 @@ func renderRequest(s State, caseID string, g Group) (FrozenRequest, error) {
 	if err != nil {
 		return f, err
 	}
+	if err := validateVariables(c.Variables); err != nil {
+		return f, err
+	}
+	resolution := resolveLanguage(*c, g)
+	variables := make(map[string]any, len(c.Variables)+1)
+	for k, v := range c.Variables {
+		variables[k] = v
+	}
+	targetMap := make(map[string]string, len(resolution.Targets))
+	for _, target := range resolution.Targets {
+		targetMap[target.Key] = target.Name
+	}
+	variables["TargetLanguageNameMap"] = targetMap
 	messages := []Message{}
 	for _, m := range t.Messages {
 		if err = validMessage(m); err != nil {
@@ -157,8 +193,8 @@ func renderRequest(s State, caseID string, g Group) (FrozenRequest, error) {
 			return f, e
 		}
 		var out limitedBuffer
-		if e = tmpl.Execute(&out, c.Variables); e != nil {
-			return f, fmt.Errorf("render %s: %w", c.Name, e)
+		if e = tmpl.Execute(&out, variables); e != nil {
+			return f, fmt.Errorf("render case %s: %w", c.ID, e)
 		}
 		messages = append(messages, Message{m.Role, out.String()})
 	}
@@ -170,10 +206,29 @@ func renderRequest(s State, caseID string, g Group) (FrozenRequest, error) {
 		return f, err
 	}
 	hash := sha256.Sum256(prepared.Body)
-	return FrozenRequest{CaseID: c.ID, CaseName: c.Name, GroupID: g.ID, GroupName: g.Name, Model: g.Model, Protocol: p.Protocol, CredentialRef: p.CredentialRef, RequiresAuth: p.APIKeyEnv != "", Endpoint: prepared.Endpoint, Method: prepared.Method, Headers: prepared.Headers, APIKeyEnv: p.APIKeyEnv, Request: prepared.Body, RawRequest: string(prepared.Body), PromptHash: hex.EncodeToString(hash[:]), Runs: g.Runs}, nil
+	return FrozenRequest{CaseID: c.ID, GroupID: g.ID, GroupName: g.Name, Model: g.Model, Protocol: p.Protocol, CredentialRef: p.CredentialRef, RequiresAuth: p.APIKeyEnv != "", Endpoint: prepared.Endpoint, Method: prepared.Method, Headers: prepared.Headers, APIKeyEnv: p.APIKeyEnv, Request: prepared.Body, RawRequest: string(prepared.Body), PromptHash: hex.EncodeToString(hash[:]), Runs: g.Runs, LanguageResolution: &resolution}, nil
 }
 func freeze(s State, in RunInput) (Snapshot, error) {
-	snap := Snapshot{Cases: []Case{}, Templates: []Template{}, Providers: []Provider{}, Groups: []Group{}, CaseIDs: in.CaseIDs, TimeoutSeconds: s.Settings.TimeoutSeconds, Requests: []FrozenRequest{}}
+	selection := Selection{CaseIDs: in.CaseIDs, CollectionIDs: in.CollectionIDs, ExcludedCaseIDs: in.ExcludedCaseIDs}
+	ids, err := resolveSelection(s, selection)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	in.CaseIDs = ids
+	snap := Snapshot{Cases: []SnapshotCase{}, Templates: []Template{}, Providers: []Provider{}, Groups: []Group{}, CaseIDs: ids, Selection: &selection, TimeoutSeconds: s.Settings.TimeoutSeconds, Requests: []FrozenRequest{}}
+	frozenCollections := map[string]bool{}
+	for _, id := range selection.CollectionIDs {
+		if frozenCollections[id] {
+			continue
+		}
+		frozenCollections[id] = true
+		for _, c := range s.Collections {
+			if c.ID == id {
+				snap.Collections = append(snap.Collections, Collection{ID: c.ID, Name: c.Name, CaseIDs: append([]string{}, c.CaseIDs...)})
+				break
+			}
+		}
+	}
 	if in.Concurrency < 1 || in.Concurrency > 20 {
 		return snap, fmt.Errorf("concurrency must be 1–20")
 	}
@@ -219,7 +274,7 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 	}
 	for _, c := range s.Cases {
 		if cases[c.ID] {
-			snap.Cases = append(snap.Cases, c)
+			snap.Cases = append(snap.Cases, SnapshotCase{ID: c.ID, Variables: c.Variables})
 		}
 	}
 	for _, t := range s.Templates {

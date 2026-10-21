@@ -28,16 +28,12 @@ const ATTEMPT_STATUS = {
 
 const ROLE_LABEL = { system: 'system · 系统', developer: 'developer · 开发者', user: 'user · 用户', assistant: 'assistant · 助手' };
 
-const VAR_HELPERS = [
-  { key: 'PriorText', hint: '前文 / 上下文文本', value: '' },
-  { key: 'CurrentText', hint: '当前待处理文本', value: '' },
-  { key: 'SourceLanguage', hint: '源语言标识', value: '' },
-  { key: 'TargetLanguageNameMap', hint: '目标语言 → 名称映射', value: {} },
-  { key: 'ReplacementMap', hint: '替换映射', value: {} }
-];
-
 const ICON_EDIT = '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l.8-3.4 8.9-8.9a1.5 1.5 0 0 1 2.1 0l.5.5a1.5 1.5 0 0 1 0 2.1l-8.9 8.9L4 16z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.5h11M8 5.5V4h4v1.5M6 5.5l.7 10h6.6l.7-10M8.4 8v5M11.6 8v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+const KNOWN_VARIABLES = ['CurrentText', 'PriorText', 'SourceLanguage', 'ReplacementMap'];
+const PROHIBITED_VARIABLES = ['TargetLanguageNameMap'];
+const LANGUAGE_NAMES = { en: 'English', jp: 'Japanese', ja: 'Japanese', es: 'Spanish', zh: 'Chinese', 'zh-CN': 'Chinese (Simplified)', ko: 'Korean', fr: 'French', de: 'German' };
 
 /* ------------------------------------------------------------------ */
 /* App state                                                           */
@@ -49,15 +45,14 @@ const App = {
   savedJson: '',
   savedAt: null,
   saving: false,
+  mutating: false,
   loading: false,
+  editGeneration: 0,
   activeView: 'workbench',
   activeCaseId: null,
   activeTemplateId: null,
   activeMessageIndex: 0,
   activeGroupId: null,
-  editorTab: 'template',
-  varTexts: new Map(),
-  varErrors: new Map(),
   preview: null,
   previewStale: true,
   previewToken: 0,
@@ -80,8 +75,6 @@ const App = {
   outputRenderRunId: null,
   snapshotRenderedFor: null,
   settingsError: [],
-  caseDialog: { mode: 'create', id: null },
-  groupDialog: { mode: 'create', id: null, params: {} },
   providerDialog: { mode: 'create', id: null, clearKey: false },
   credentialMutations: new Map(),
   credentials: {},
@@ -92,7 +85,46 @@ const App = {
   bannerAction: null,
   connOnline: null,
   lastRunsSignature: '',
-  lastFilterSignature: ''
+  lastFilterSignature: '',
+  selectionPreview: null,
+  selectionPreviewKey: '',
+  selectionPreviewStale: true,
+  selectionTimer: null,
+  rangeOpen: true,
+  rangeDraft: null,
+  rangeShowAll: false,
+  library: {
+    page: 1,
+    pageSize: 8,
+    search: '',
+    source: '',
+    collectionId: null,
+    selected: new Set(),
+    expandedPreview: false
+  },
+  caseEditor: null,
+  io: {
+    format: 'jsonl',
+    fileName: '',
+    content: '',
+    preview: null,
+    previewGen: 0,
+    previewVersion: null,
+    previewFingerprint: '',
+    previewStale: false,
+    recoverNeeded: false,
+    expanded: false,
+    busy: false,
+    targetCollectionId: '',
+    exportRange: 'cases',
+    exportFormat: 'jsonl',
+    exportCollectionIds: new Set(),
+    exportIncludeMemberships: true
+  },
+  groupEditor: null,
+  collectionDialog: { mode: 'create', id: null },
+  joinCollection: { caseIds: [] },
+  targetDialog: { routeIndex: -1 }
 };
 
 /* ------------------------------------------------------------------ */
@@ -206,6 +238,31 @@ function attemptLabel(status) {
   return ATTEMPT_STATUS[status] || status || '未知';
 }
 
+function markEdit() {
+  App.editGeneration += 1;
+}
+
+function shortId(id) {
+  const s = String(id || '');
+  return s.length > 8 ? s.slice(0, 8) : s;
+}
+
+function currentTextOf(c) {
+  const v = c && c.variables && typeof c.variables === 'object' ? c.variables.CurrentText : undefined;
+  return typeof v === 'string' ? v : '';
+}
+
+function excerptText(text, max = 44) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}…`;
+}
+
+function sourceLanguageOf(c) {
+  const v = c && c.variables && typeof c.variables === 'object' ? c.variables.SourceLanguage : undefined;
+  return typeof v === 'string' ? v : '';
+}
+
 function activeCase() {
   return App.state ? App.state.cases.find((c) => c.id === App.activeCaseId) || null : null;
 }
@@ -227,6 +284,14 @@ function activeMessage() {
 
 function caseById(id) {
   return App.state ? App.state.cases.find((c) => c.id === id) || null : null;
+}
+
+function collectionById(id) {
+  return App.state ? App.state.collections.find((c) => c.id === id) || null : null;
+}
+
+function collectionsForCase(id) {
+  return App.state ? App.state.collections.filter((c) => c.case_ids.includes(id)) : [];
 }
 
 function templateById(id) {
@@ -274,14 +339,48 @@ function newProviderId() {
   return id;
 }
 
-function selectedCaseIds() {
+function resolveSelection(selection) {
   if (!App.state) return [];
+  const caseSet = new Set(App.state.cases.map((c) => c.id));
   const seen = new Set();
-  return App.state.draft.case_ids.filter((id) => {
-    if (seen.has(id) || !caseById(id)) return false;
+  const ordered = [];
+  const add = (id) => {
+    if (!caseSet.has(id) || seen.has(id)) return;
     seen.add(id);
-    return true;
+    ordered.push(id);
+  };
+  for (const id of selection.case_ids || []) add(id);
+  for (const cid of selection.collection_ids || []) {
+    const c = collectionById(cid);
+    if (!c) continue;
+    for (const id of c.case_ids) add(id);
+  }
+  const excluded = new Set(selection.excluded_case_ids || []);
+  return ordered.filter((id) => !excluded.has(id));
+}
+
+function selectedCaseIds() {
+  return App.state ? resolveSelection(App.state.draft) : [];
+}
+
+function resolveGroupTargets(group, sourceLanguage) {
+  const routes = Array.isArray(group.language_routes) ? group.language_routes : [];
+  for (const route of routes) {
+    if (route && route.source_language === sourceLanguage) {
+      return { targets: Array.isArray(route.targets) ? route.targets : [], usedDefault: false };
+    }
+  }
+  return { targets: [{ key: 'en', name: 'English' }], usedDefault: true };
+}
+
+function groupRouteSummary(group) {
+  const routes = Array.isArray(group.language_routes) ? group.language_routes : [];
+  const parts = routes.map((r) => {
+    const targets = (r.targets || []).map((t) => t.key).join(', ');
+    return `${r.source_language || '（空）'} → ${targets || '（无目标）'}`;
   });
+  parts.push('未匹配 → en');
+  return parts;
 }
 
 function isDirty() {
@@ -297,32 +396,29 @@ function pendingCredentialFor(id) {
 }
 
 function hasUnsavedWork() {
-  return isDirty() || hasVarErrors() || hasPendingCredentials();
+  return isDirty() || hasPendingCredentials();
 }
 
 function discardCredentialMutation(id) {
   App.credentialMutations.delete(id);
   updateDirtyUI();
   renderProviders();
-}
-
-function hasVarErrors() {
-  return App.varErrors.size > 0;
+  if (typeof renderGroupCards === 'function') renderGroupCards();
 }
 
 function isBusyVisual() {
-  return App.saving || App.loading;
+  return App.saving || App.loading || App.mutating;
 }
 
 /* ------------------------------------------------------------------ */
 /* API                                                                 */
 /* ------------------------------------------------------------------ */
 
-async function api(path, options = {}) {
+async function apiRaw(path, options = {}) {
   const opts = { method: options.method || 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' };
   if (options.body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(options.body);
+    opts.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
   }
   if (options.signal) opts.signal = options.signal;
   let res;
@@ -349,7 +445,11 @@ async function api(path, options = {}) {
     error.payload = payload;
     throw error;
   }
-  return payload;
+  return { payload, text, res };
+}
+
+async function api(path, options = {}) {
+  return (await apiRaw(path, options)).payload;
 }
 
 const apiGet = (path) => api(path);
@@ -409,6 +509,7 @@ function normalizeState(input) {
   const s = input && typeof input === 'object' ? input : {};
   s.version = Number.isFinite(Number(s.version)) ? Number(s.version) : 0;
   s.cases = Array.isArray(s.cases) ? s.cases : [];
+  s.collections = Array.isArray(s.collections) ? s.collections : [];
   s.templates = Array.isArray(s.templates) ? s.templates : [];
   s.providers = Array.isArray(s.providers) ? s.providers : [];
   s.settings = s.settings && typeof s.settings === 'object' ? s.settings : {};
@@ -418,12 +519,17 @@ function normalizeState(input) {
   s.draft = s.draft && typeof s.draft === 'object' ? s.draft : {};
   s.draft.name = typeof s.draft.name === 'string' ? s.draft.name : '';
   s.draft.case_ids = Array.isArray(s.draft.case_ids) ? s.draft.case_ids : [];
+  s.draft.collection_ids = Array.isArray(s.draft.collection_ids) ? s.draft.collection_ids : [];
+  s.draft.excluded_case_ids = Array.isArray(s.draft.excluded_case_ids) ? s.draft.excluded_case_ids : [];
   s.draft.groups = Array.isArray(s.draft.groups) ? s.draft.groups : [];
   for (const c of s.cases) {
     if (!c.id) c.id = `case_${Math.random().toString(36).slice(2, 8)}`;
-    if (!c.name) c.name = c.id;
     c.variables = c.variables && typeof c.variables === 'object' && !Array.isArray(c.variables) ? c.variables : {};
-    if (typeof c.description !== 'string') c.description = '';
+  }
+  for (const c of s.collections) {
+    if (!c.id) c.id = `collection_${Math.random().toString(36).slice(2, 8)}`;
+    c.name = typeof c.name === 'string' ? c.name : '';
+    c.case_ids = Array.isArray(c.case_ids) ? c.case_ids.filter((id) => typeof id === 'string') : [];
   }
   for (const t of s.templates) {
     if (!t.id) t.id = `tpl_${Math.random().toString(36).slice(2, 8)}`;
@@ -452,6 +558,13 @@ function normalizeState(input) {
     g.model = typeof g.model === 'string' ? g.model : '';
     g.parameters = g.parameters && typeof g.parameters === 'object' && !Array.isArray(g.parameters) ? g.parameters : {};
     g.runs = clampInt(g.runs, 1, 1000, s.settings.default_runs);
+    g.language_routes = Array.isArray(g.language_routes) ? g.language_routes.map((route) => ({
+      source_language: typeof route?.source_language === 'string' ? route.source_language : '',
+      targets: Array.isArray(route?.targets) ? route.targets.map((t) => ({
+        key: typeof t?.key === 'string' ? t.key : '',
+        name: typeof t?.name === 'string' ? t.name : ''
+      })) : []
+    })) : [];
   }
   return s;
 }
@@ -460,7 +573,7 @@ async function loadState() {
   App.loading = true;
   updateDirtyUI();
   try {
-    const payload = await apiGet('/api/state');
+    const { payload } = await apiRaw('/api/state');
     const credentials = payload && typeof payload === 'object' ? payload.credentials : null;
     App.credentials = normalizeCredentials(credentials);
     if (payload && typeof payload === 'object') delete payload.credentials;
@@ -468,12 +581,13 @@ async function loadState() {
     App.version = App.state.version;
     App.savedJson = stableStringify(App.state);
     App.savedAt = new Date();
-    App.varTexts.clear();
-    App.varErrors.clear();
-    for (const c of App.state.cases) App.varTexts.set(c.id, pretty(c.variables));
     App.preview = null;
     App.previewStale = true;
+    App.selectionPreview = null;
+    App.selectionPreviewStale = true;
     ensureSelections();
+    const resolved = selectedCaseIds();
+    if (resolved.length && !resolved.includes(App.activeCaseId)) App.activeCaseId = resolved[0];
   } finally {
     App.loading = false;
     updateDirtyUI();
@@ -495,6 +609,13 @@ function ensureSelections() {
   const maxIndex = tpl && tpl.messages.length ? tpl.messages.length - 1 : 0;
   if (App.activeMessageIndex > maxIndex) App.activeMessageIndex = maxIndex;
   if (!tpl || !tpl.messages.length) App.activeMessageIndex = 0;
+  if (App.state.collections && !App.library.collectionId) {
+    // keep "all cases" filter
+  } else if (App.library.collectionId && !collectionById(App.library.collectionId)) {
+    App.library.collectionId = null;
+  }
+  const ids = new Set(App.state.cases.map((c) => c.id));
+  for (const id of [...App.library.selected]) if (!ids.has(id)) App.library.selected.delete(id);
 }
 
 /* ------------------------------------------------------------------ */
@@ -509,17 +630,37 @@ function svgChevronDown() {
   return '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 7.5 10 13l5-5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
+function viewCrumb() {
+  const base = App.state ? (App.state.draft.name || 'ASR 多目标翻译') : 'ASR 多目标翻译';
+  switch (App.activeView) {
+    case 'cases': {
+      const col = App.library.collectionId ? collectionById(App.library.collectionId) : null;
+      return `${base} / Case 库 · ${col ? col.name : '全部 Case'}`;
+    }
+    case 'case-editor': return `${base} / Case 库 / 编辑`;
+    case 'case-io': return `${base} / Case 导入与导出`;
+    case 'group-editor': {
+      const id = App.groupEditor ? App.groupEditor.id : App.activeGroupId;
+      const g = id ? groupById(id) : null;
+      return `${base} / 工作台 / ${g ? (g.name || '配置') : '新配置'}`;
+    }
+    case 'history': return `${base} / 运行记录`;
+    case 'providers': return `${base} / Providers`;
+    case 'settings': return `${base} / 全局设置`;
+    default: return `${base} / 工作台 · 本次运行范围`;
+  }
+}
+
 function renderShell() {
   if (!App.state) return;
   const draft = App.state.draft;
-  const c = activeCase();
-  $('crumb').textContent = `${draft.name || '未命名草稿'} / ${c ? c.id : '无 case'}`;
+  $('crumb').textContent = viewCrumb();
   $('state-version').textContent = `v${App.version}`;
   $('state-version').title = `服务端状态版本 ${App.version}`;
   const nameInput = $('draft-name');
-  if (document.activeElement !== nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
+  if (nameInput && document.activeElement !== nameInput && nameInput.value !== draft.name) nameInput.value = draft.name;
   const meta = $('draft-meta');
-  if (meta) meta.textContent = `${App.state.cases.length} 个 case · ${draft.groups.length} 个对照配置`;
+  if (meta) meta.textContent = `${App.state.cases.length} 个 Case · ${draft.groups.length} 个配置`;
   document.title = `${hasUnsavedWork() ? '● ' : ''}Promptbench · ${draft.name || 'Prompt 调试'}`;
 }
 
@@ -534,6 +675,8 @@ function updateDirtyUI() {
     el.classList.add('error');
   } else if (App.saving) {
     el.textContent = '保存中…';
+  } else if (App.mutating) {
+    el.textContent = '正在写入…';
   } else if (dirty) {
     el.textContent = '有未保存更改';
     el.classList.add('dirty');
@@ -541,13 +684,7 @@ function updateDirtyUI() {
     el.textContent = App.savedAt ? `已保存 ${fmtClock(App.savedAt)}` : '已保存';
   }
   const saveBtn = $('save-btn');
-  if (saveBtn) saveBtn.disabled = App.saving;
-  const globalSave = $('global-save-btn');
-  if (globalSave) {
-    globalSave.disabled = App.saving;
-    globalSave.textContent = dirty ? '保存草稿 ●' : '保存草稿';
-    globalSave.title = dirty ? '有未保存更改' : '草稿已保存';
-  }
+  if (saveBtn) saveBtn.disabled = App.saving || App.mutating;
   if (App.state) {
     document.title = `${dirty ? '● ' : ''}Promptbench · ${App.state.draft.name || 'Prompt 调试'}`;
   }
@@ -556,73 +693,57 @@ function updateDirtyUI() {
 function renderAll() {
   ensureSelections();
   renderShell();
-  renderCaseList();
+  renderCollectionNav();
   renderTemplateOptions();
   renderTemplateEditor();
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
+  renderWorkbenchCase();
   renderModelSuggestions();
   renderProviders();
   renderSettings();
-  renderRecentRuns();
   renderHistoryList();
   renderOutput();
   renderPreviewState();
+  if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  if (typeof renderLibrary === 'function') renderLibrary();
+  if (typeof renderCaseEditor === 'function') renderCaseEditor();
+  if (typeof renderIO === 'function') renderIO();
+  if (typeof renderGroupEditor === 'function') renderGroupEditor();
   updateDirtyUI();
   refreshRunPlan();
+  if (typeof scheduleSelectionPreview === 'function') scheduleSelectionPreview(0);
 }
 
 /* ------------------------------------------------------------------ */
-/* Sidebar: cases and recent runs                                      */
+/* Sidebar: collections                                                */
 /* ------------------------------------------------------------------ */
 
-function renderCaseList() {
-  const list = $('case-list');
+function renderCollectionNav() {
+  const section = $('collection-section');
+  if (!section) return;
+  section.hidden = App.activeView !== 'cases';
+  const list = $('collection-list');
   if (!list || !App.state) return;
-  const selected = new Set(App.state.draft.case_ids);
-  const cases = App.state.cases;
-  $('case-count').textContent = `${selectedCaseIds().length} / ${cases.length}`;
-  if (!cases.length) {
-    list.innerHTML = '<div class="side-empty">尚无 case。点击“新建 case”开始。</div>';
-    return;
+  const allActive = !App.library.collectionId;
+  const rows = [`
+    <button type="button" class="collection-row ${allActive ? 'active' : ''}" data-collection-filter="">
+      <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="3.5" width="10" height="13" rx="1.2"/><path d="M3.4 6v10.5h9"/></svg>
+      <span class="collection-name">全部 Case</span>
+      <span class="collection-count">${esc(String(App.state.cases.length))}</span>
+    </button>`];
+  for (const c of App.state.collections) {
+    rows.push(`
+      <button type="button" class="collection-row ${App.library.collectionId === c.id ? 'active' : ''}" data-collection-filter="${esc(c.id)}">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.8 5.8h4l1.5 1.7h8.9v7.2a1.4 1.4 0 0 1-1.4 1.4H4.2a1.4 1.4 0 0 1-1.4-1.4z"/></svg>
+        <span class="collection-name" title="${esc(c.name)}">${esc(c.name)}</span>
+        <span class="collection-count">${esc(String(c.case_ids.length))}</span>
+      </button>`);
   }
-  list.innerHTML = cases.map((c) => {
-    const isActive = c.id === App.activeCaseId;
-    const isSelected = selected.has(c.id);
-    const subtitle = c.description || c.name || '未命名';
-    return `
-      <div class="case-item ${isActive ? 'active' : ''}" data-case-id="${esc(c.id)}">
-        <label class="case-check" title="加入本次运行选择">
-          <input type="checkbox" data-case-select="${esc(c.id)}" ${isSelected ? 'checked' : ''} aria-label="${esc(`选择 ${c.name || c.id} 参与本次运行`)}">
-        </label>
-        <button type="button" class="case-main" data-case-activate="${esc(c.id)}" aria-pressed="${isActive ? 'true' : 'false'}">
-          <span class="case-id">${esc(c.id)}</span>
-          <span class="case-name">${esc(subtitle)}</span>
-        </button>
-        <button type="button" class="case-menu" data-case-menu="${esc(c.id)}" title="编辑 / 复制 / 删除" aria-label="${esc(`编辑或删除 case ${c.id}`)}">···</button>
-      </div>`;
-  }).join('');
-}
-
-function renderRecentRuns() {
-  const el = $('recent-runs');
-  if (!el) return;
-  if (!App.runs.length) {
-    el.innerHTML = App.runsLoaded
-      ? '<div class="side-empty">尚无运行记录。</div>'
-      : '<div class="side-empty">载入中…</div>';
-    return;
-  }
-  el.innerHTML = App.runs.slice(0, 6).map((b) => `
-    <button type="button" class="recent-item ${b.id === App.currentRunId ? 'active' : ''}" data-run-open="${esc(b.id)}">
-      <span class="recent-name">${esc(b.name || b.id)}</span>
-      <span class="recent-meta">#${esc(b.id)} · ${esc(String(b.total ?? 0))} calls · ${esc(statusLabel(b.status))}</span>
-    </button>
-  `).join('');
+  list.innerHTML = rows.join('');
 }
 
 /* ------------------------------------------------------------------ */
-/* Editor: templates / messages / variables                            */
+/* Editor: templates / messages                                        */
 /* ------------------------------------------------------------------ */
 
 function renderTemplateMismatch() {
@@ -655,7 +776,6 @@ function focusBoundTemplate() {
   }
   App.activeTemplateId = bound.id;
   App.activeMessageIndex = 0;
-  App.editorTab = 'template';
   renderTemplateOptions();
   renderTemplateEditor();
   renderInsertVarList();
@@ -689,9 +809,6 @@ function renderTemplateEditor() {
   const tabs = $('message-tabs');
   const tabTitle = tpl ? tpl.name : '模板消息';
 
-  $('tab-template').textContent = tpl ? `${tabTitle} · 消息` : '模板消息';
-  $('tab-variables').textContent = 'case.variables.json';
-
   if (!tpl) {
     tabs.innerHTML = '<span class="message-tabs-empty">尚无模板。点击“新建模板”开始。</span>';
     ta.value = '';
@@ -701,9 +818,7 @@ function renderTemplateEditor() {
     $('add-message-btn').disabled = true;
     $('del-message-btn').disabled = true;
     $('insert-var-menu').hidden = true;
-    setEditorTabUI();
     updateLineInfo(ta, $('message-lineinfo'));
-    syncVariablesEditor();
     updateEditorContextLabel();
     renderTemplateMismatch();
     return;
@@ -734,199 +849,30 @@ function renderTemplateEditor() {
     ta.placeholder = '添加一条消息后开始编辑。';
     role.value = 'user';
   }
-  setEditorTabUI();
   updateLineInfo(ta, $('message-lineinfo'));
-  syncVariablesEditor();
   updateEditorContextLabel();
   renderTemplateMismatch();
-}
-
-function setEditorTabUI() {
-  const isTemplate = App.editorTab === 'template';
-  const tabTemplate = $('tab-template');
-  const tabVariables = $('tab-variables');
-  if (!tabTemplate || !tabVariables) return;
-  tabTemplate.setAttribute('aria-selected', isTemplate ? 'true' : 'false');
-  tabVariables.setAttribute('aria-selected', isTemplate ? 'false' : 'true');
-  $('editor-template-panel').hidden = !isTemplate;
-  $('editor-variables-panel').hidden = isTemplate;
-  const menu = $('insert-var-menu');
-  if (menu) menu.hidden = !isTemplate || !activeTemplate();
-  updateEditorContextLabel();
 }
 
 function updateEditorContextLabel() {
   const el = $('editor-context-label');
   if (!el) return;
-  if (App.editorTab === 'variables') {
-    const c = activeCase();
-    el.textContent = c ? `变量 · ${c.id}` : '尚未选择案例';
-  } else {
-    const tpl = activeTemplate();
-    el.textContent = tpl ? `${tpl.messages.length} 条消息 · 原始内容原样发送给后端渲染` : '';
-  }
+  const tpl = activeTemplate();
+  el.textContent = tpl ? `${tabTitleSafe(tpl)} · ${tpl.messages.length} 条消息 · 后端渲染` : '';
+}
+
+function tabTitleSafe(tpl) {
+  return tpl ? (tpl.name || tpl.id) : '模板';
 }
 
 function setActiveCase(id) {
   if (!caseById(id)) return;
   App.activeCaseId = id;
-  if (App.editorTab === 'variables') syncVariablesEditor();
-  else syncVariablesEditor();
-  renderCaseList();
+  renderWorkbenchCase();
   renderTemplateEditor();
   renderInsertVarList();
   renderShell();
   markPreviewStale('已切换案例');
-}
-
-function toggleCaseSelection(id, checked) {
-  if (!App.state || !caseById(id)) return;
-  const ids = App.state.draft.case_ids;
-  if (checked) {
-    if (!ids.includes(id)) ids.push(id);
-  } else {
-    App.state.draft.case_ids = ids.filter((x) => x !== id);
-  }
-  renderCaseList();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('运行选择已变更');
-}
-
-function syncVariablesEditor() {
-  const ta = $('variables-json');
-  if (!ta) return;
-  const c = activeCase();
-  if (!c) {
-    ta.value = '';
-    ta.disabled = true;
-    ta.placeholder = '请先选择或新建 case。';
-    showVariablesError('');
-    updateLineInfo(ta, $('var-lineinfo'));
-    return;
-  }
-  ta.disabled = false;
-  ta.placeholder = '{\n  "CurrentText": "…"\n}';
-  const text = App.varTexts.has(c.id) ? App.varTexts.get(c.id) : pretty(c.variables);
-  if (ta.value !== text && document.activeElement !== ta) ta.value = text;
-  else if (ta.value !== text && document.activeElement === ta) {
-    // Keep focus; the input handler is the source of truth while typing.
-  }
-  showVariablesError(App.varErrors.get(c.id) || '');
-  updateLineInfo(ta, $('var-lineinfo'));
-}
-
-function showVariablesError(message) {
-  const err = $('variables-error');
-  const ta = $('variables-json');
-  if (err) err.textContent = message || '';
-  if (ta) {
-    if (message) ta.setAttribute('aria-invalid', 'true');
-    else ta.removeAttribute('aria-invalid');
-  }
-}
-
-function handleVariablesInput() {
-  const c = activeCase();
-  const ta = $('variables-json');
-  if (!c || !ta) return;
-  const text = ta.value;
-  App.varTexts.set(c.id, text);
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    App.varErrors.set(c.id, `JSON 解析失败：${err.message}`);
-    showVariablesError(App.varErrors.get(c.id));
-    updateDirtyUI();
-    updateLineInfo(ta, $('var-lineinfo'));
-    return;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    App.varErrors.set(c.id, '变量必须是 JSON 对象（{ ... }），不能是数组或基本类型。');
-    showVariablesError(App.varErrors.get(c.id));
-    updateDirtyUI();
-    updateLineInfo(ta, $('var-lineinfo'));
-    return;
-  }
-  App.varErrors.delete(c.id);
-  c.variables = parsed;
-  showVariablesError('');
-  updateDirtyUI();
-  updateLineInfo(ta, $('var-lineinfo'));
-  renderInsertVarList();
-  markPreviewStale('变量已修改');
-  refreshRunPlan();
-}
-
-function formatVariables() {
-  const c = activeCase();
-  const ta = $('variables-json');
-  if (!c || !ta) return;
-  try {
-    const parsed = JSON.parse(ta.value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('必须是 JSON 对象');
-    const text = pretty(parsed);
-    ta.value = text;
-    App.varTexts.set(c.id, text);
-    App.varErrors.delete(c.id);
-    c.variables = parsed;
-    showVariablesError('');
-    updateLineInfo(ta, $('var-lineinfo'));
-    updateDirtyUI();
-    toast('变量 JSON 已格式化', 'ok', 1800);
-  } catch (err) {
-    App.varErrors.set(c.id, `JSON 解析失败：${err.message}`);
-    showVariablesError(App.varErrors.get(c.id));
-    updateDirtyUI();
-    toast(`无法格式化：${err.message}`, 'error');
-  }
-}
-
-function renderVariableChips() {
-  const host = $('variable-chips');
-  if (!host) return;
-  host.innerHTML = VAR_HELPERS.map((h) => `
-    <button type="button" class="chip" data-var-add="${esc(h.key)}" title="${esc(`添加 ${h.key}：${h.hint}`)}">${esc(h.key)}</button>
-  `).join('');
-}
-
-function addVariableHelper(key) {
-  const c = activeCase();
-  const ta = $('variables-json');
-  if (!c || !ta) {
-    toast('请先选择 case', 'error');
-    return;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(ta.value);
-  } catch (err) {
-    showVariablesError(`JSON 解析失败：${err.message}`);
-    toast('请先修正变量 JSON 再添加字段', 'error');
-    return;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    showVariablesError('变量必须是 JSON 对象。');
-    return;
-  }
-  if (hasOwn(parsed, key)) {
-    toast(`字段 ${key} 已存在`, 'info', 2000);
-    return;
-  }
-  const helper = VAR_HELPERS.find((h) => h.key === key);
-  parsed[key] = helper ? clone(helper.value) : '';
-  const text = pretty(parsed);
-  ta.value = text;
-  App.varTexts.set(c.id, text);
-  App.varErrors.delete(c.id);
-  c.variables = parsed;
-  showVariablesError('');
-  updateLineInfo(ta, $('var-lineinfo'));
-  updateDirtyUI();
-  renderInsertVarList();
-  markPreviewStale('变量已修改');
-  refreshRunPlan();
 }
 
 function renderInsertVarList() {
@@ -939,7 +885,7 @@ function renderInsertVarList() {
   }
   const keys = Object.keys(c.variables || {}).filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)).sort();
   if (!keys.length) {
-    list.innerHTML = '<div class="menu-empty">当前 case 没有可用变量，请在变量 JSON 中添加。</div>';
+    list.innerHTML = '<div class="menu-empty">当前 case 没有可用变量，请在 Case 库中添加。</div>';
     return;
   }
   list.innerHTML = keys.map((k) => `<button type="button" data-var-insert="${esc(k)}">{{ .${esc(k)} }}</button>`).join('');
@@ -1004,14 +950,13 @@ function createTemplate(name) {
   App.state.templates.push(tpl);
   App.activeTemplateId = id;
   App.activeMessageIndex = 0;
-  App.editorTab = 'template';
   renderTemplateOptions();
   renderTemplateEditor();
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
   renderModelSuggestions();
   updateDirtyUI();
   refreshRunPlan();
+  markPreviewStale('模板已新建');
 }
 
 function duplicateTemplate() {
@@ -1027,8 +972,7 @@ function duplicateTemplate() {
   App.activeMessageIndex = 0;
   renderTemplateOptions();
   renderTemplateEditor();
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
   toast('已复制模板到草稿，保存后生效', 'ok');
@@ -1050,8 +994,7 @@ function deleteTemplate() {
   ensureSelections();
   renderTemplateOptions();
   renderTemplateEditor();
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
   markPreviewStale('模板已删除');
@@ -1085,240 +1028,78 @@ function deleteMessage() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Case CRUD                                                           */
+/* Workbench: current case + group cards                               */
 /* ------------------------------------------------------------------ */
 
-function openCaseDialog(mode, id = null) {
-  if (!App.state) return;
-  const source = id ? caseById(id) : null;
-  if (mode !== 'create' && !source) return;
-  App.caseDialog = { mode, id };
-  const title = $('case-dialog-title');
-  const idInput = $('case-id');
-  const nameInput = $('case-name');
-  const descInput = $('case-desc');
-  const varsInput = $('case-variables');
-  const selectRow = $('case-select-row');
-  const addSelection = $('case-add-selection');
-  const dupBtn = $('case-duplicate-btn');
-  const delBtn = $('case-delete-btn');
-  const submit = $('case-submit');
-
-  $('case-error').textContent = '';
-  idInput.removeAttribute('aria-invalid');
-  nameInput.removeAttribute('aria-invalid');
-  varsInput.removeAttribute('aria-invalid');
-
-  if (mode === 'create') {
-    const existing = new Set(App.state.cases.map((c) => c.id));
-    let n = App.state.cases.length + 1;
-    while (existing.has(`case_${n}`)) n += 1;
-    idInput.value = `case_${n}`;
-    idInput.disabled = false;
-    nameInput.value = '';
-    descInput.value = '';
-    varsInput.value = '{\n  "CurrentText": ""\n}';
-    addSelection.checked = true;
-    selectRow.hidden = false;
-    dupBtn.hidden = true;
-    delBtn.hidden = true;
-    title.textContent = '新建 case';
-    submit.textContent = '创建 case';
-  } else {
-    const isDuplicate = mode === 'duplicate';
-    let nextId = source.id;
-    if (isDuplicate) {
-      const existing = new Set(App.state.cases.map((c) => c.id));
-      nextId = `${source.id}_copy`;
-      let n = 2;
-      while (existing.has(nextId)) {
-        nextId = `${source.id}_copy${n}`;
-        n += 1;
-      }
-    }
-    idInput.value = nextId;
-    idInput.disabled = !isDuplicate;
-    nameInput.value = isDuplicate ? `${source.name || source.id} 副本` : (source.name || '');
-    descInput.value = source.description || '';
-    varsInput.value = App.varTexts.has(source.id)
-      ? App.varTexts.get(source.id)
-      : pretty(source.variables);
-    addSelection.checked = isDuplicate ? true : App.state.draft.case_ids.includes(source.id);
-    selectRow.hidden = false;
-    dupBtn.hidden = true;
-    delBtn.hidden = true;
-    title.textContent = isDuplicate ? '复制 case' : '编辑 case';
-    submit.textContent = isDuplicate ? '复制 case' : '保存 case';
+function renderWorkbenchCase() {
+  const idEl = $('wb-case-id');
+  const body = $('wb-case-body');
+  if (!idEl || !body) return;
+  const resolved = selectedCaseIds();
+  if (resolved.length && (!App.activeCaseId || !resolved.includes(App.activeCaseId))) {
+    App.activeCaseId = resolved[0];
   }
-  $('case-dialog').showModal();
-  window.setTimeout(() => {
-    if (mode === 'create') { nameInput.focus(); } else { nameInput.focus(); nameInput.select(); }
-  }, 0);
-}
-
-function submitCaseDialog(event) {
-  event.preventDefault();
-  if (!App.state) return;
-  const mode = App.caseDialog.mode;
-  const sourceId = App.caseDialog.id;
-  const id = $('case-id').value.trim();
-  const name = $('case-name').value.trim();
-  const desc = $('case-desc').value.trim();
-  const varsText = $('case-variables').value;
-  const errEl = $('case-error');
-  const idInput = $('case-id');
-  const nameInput = $('case-name');
-  const varsInput = $('case-variables');
-  errEl.textContent = '';
-  idInput.removeAttribute('aria-invalid');
-  nameInput.removeAttribute('aria-invalid');
-  varsInput.removeAttribute('aria-invalid');
-
-  if (!id) {
-    errEl.textContent = 'Case ID 不能为空。';
-    idInput.setAttribute('aria-invalid', 'true');
-    idInput.focus();
+  const c = activeCase();
+  if (!c) {
+    idEl.textContent = '';
+    body.innerHTML = '<div class="empty-state">Case 库中还没有 Case。</div>';
     return;
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
-    errEl.textContent = 'Case ID 只能包含字母、数字、点、下划线和短横线，且不能以符号开头。';
-    idInput.setAttribute('aria-invalid', 'true');
-    idInput.focus();
-    return;
-  }
-  if (!name) {
-    errEl.textContent = '名称不能为空。';
-    nameInput.setAttribute('aria-invalid', 'true');
-    nameInput.focus();
-    return;
-  }
-  let variables;
-  try {
-    variables = JSON.parse(varsText);
-  } catch (err) {
-    errEl.textContent = `变量 JSON 解析失败：${err.message}`;
-    varsInput.setAttribute('aria-invalid', 'true');
-    varsInput.focus();
-    return;
-  }
-  if (!variables || typeof variables !== 'object' || Array.isArray(variables)) {
-    errEl.textContent = '变量必须是 JSON 对象。';
-    varsInput.setAttribute('aria-invalid', 'true');
-    varsInput.focus();
-    return;
-  }
-  if (mode !== 'edit' && caseById(id)) {
-    errEl.textContent = `Case ID「${id}」已存在。`;
-    idInput.setAttribute('aria-invalid', 'true');
-    idInput.focus();
-    return;
-  }
-
-  if (mode === 'edit') {
-    const target = caseById(sourceId);
-    if (!target) {
-      errEl.textContent = '要编辑的 case 已不存在。';
-      return;
-    }
-    target.name = name;
-    target.description = desc;
-    target.variables = variables;
-    App.varTexts.set(target.id, pretty(variables));
-    App.varErrors.delete(target.id);
-    App.activeCaseId = target.id;
-  } else {
-    App.state.cases.push({ id, name, description: desc, variables });
-    App.varTexts.set(id, pretty(variables));
-    App.varErrors.delete(id);
-    App.activeCaseId = id;
-    if ($('case-add-selection').checked && !App.state.draft.case_ids.includes(id)) {
-      App.state.draft.case_ids.push(id);
-    }
-  }
-  $('case-dialog').close();
-  renderCaseList();
-  renderTemplateEditor();
-  renderInsertVarList();
-  syncVariablesEditor();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('case 已修改');
+  const inScope = resolved.includes(c.id);
+  idEl.textContent = shortId(c.id);
+  idEl.title = c.id;
+  const text = currentTextOf(c);
+  const source = sourceLanguageOf(c);
+  const groups = App.state.draft.groups.filter((g) => g.enabled);
+  const targetLines = groups.map((g) => {
+    const resolved = resolveGroupTargets(g, source);
+    const targets = resolved.targets.map((t) => t.key).join(', ');
+    return `<div class="case-target-line"><span class="case-target-group">${esc(g.name || g.id)}</span><span class="case-target-values">→ ${esc(targets || '—')}${resolved.usedDefault ? ' <span class="default-mark">默认</span>' : ''}</span></div>`;
+  }).join('');
+  body.innerHTML = `
+    <div class="case-preview-text">${esc(text || '（无 CurrentText）')}</div>
+    <div class="case-preview-meta">源语言：<span class="mono">${esc(source || '（未设置）')}</span>${inScope ? '' : ' · <span class="pill warn">范围外</span>'}</div>
+    ${targetLines || '<div class="muted small">没有启用的对照配置。</div>'}
+  `;
 }
 
-function deleteCaseFromDialog() {
-  const c = caseById(App.caseDialog.id);
-  if (!c) return;
-  if (!window.confirm(`删除 case「${c.name || c.id}」？\n\n会同时从本次运行选择中移除；历史批次不受影响。`)) return;
-  App.state.cases = App.state.cases.filter((x) => x.id !== c.id);
-  App.state.draft.case_ids = App.state.draft.case_ids.filter((id) => id !== c.id);
-  App.varTexts.delete(c.id);
-  App.varErrors.delete(c.id);
-  if (App.activeCaseId === c.id) App.activeCaseId = App.state.cases[0]?.id || null;
-  $('case-dialog').close();
-  renderCaseList();
-  renderTemplateEditor();
-  syncVariablesEditor();
-  renderInsertVarList();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('case 已删除');
+function groupRoutesHtml(group) {
+  const parts = groupRouteSummary(group);
+  return parts.map((part, index) => `<span class="${index === parts.length - 1 ? 'route-default' : ''}">${esc(part)}</span>`).join('');
 }
 
-/* ------------------------------------------------------------------ */
-/* Groups table                                                        */
-/* ------------------------------------------------------------------ */
-
-function paramCell(params, key) {
-  if (!hasOwn(params, key)) return '<span class="param-omit">未发送</span>';
-  const value = params[key];
-  if (value === null) return '<span class="param-null">null</span>';
-  if (typeof value === 'string') return esc(value);
-  return esc(JSON.stringify(value));
-}
-
-function templateName(id) {
-  return templateById(id)?.name || (id ? `缺失:${id}` : '未选择');
-}
-
-function providerName(id) {
-  return providerById(id)?.name || (id ? `缺失:${id}` : '未选择');
-}
-
-function renderGroups() {
-  const body = $('groups-body');
-  if (!body || !App.state) return;
+function renderGroupCards() {
+  const host = $('group-cards');
+  if (!host || !App.state) return;
   const groups = App.state.draft.groups;
   const enabled = groups.filter((g) => g.enabled).length;
   $('group-enabled-count').textContent = `${enabled} 个已启用`;
   if (!groups.length) {
-    body.innerHTML = '<tr><td colspan="9"><div class="empty-state">尚无对照组配置。点击“＋ 添加配置”显式添加模板 / Provider / 模型组合。</div></td></tr>';
+    host.innerHTML = '<div class="empty-state">尚无对照组配置。点击“＋ 添加配置”添加模板 / Provider / 模型组合。</div>';
     return;
   }
-  body.innerHTML = groups.map((g) => {
+  host.innerHTML = groups.map((g) => {
     const tpl = templateById(g.template_id);
     const prov = providerById(g.provider_id);
-    const missing = !tpl || !prov || !String(g.model || '').trim() || !isKnownProtocol(prov.protocol);
+    const missing = !tpl || !prov || !String(g.model || '').trim() || !prov.protocol || !isKnownProtocol(prov.protocol);
+    const meta = prov ? credentialMeta(prov.id) : null;
+    const credWarn = prov && meta && meta.requires_auth && !meta.available;
     return `
-      <tr data-group-id="${esc(g.id)}" class="${g.id === App.activeGroupId ? 'active-row' : ''}">
-        <td><input type="checkbox" data-group-enabled="${esc(g.id)}" ${g.enabled ? 'checked' : ''} aria-label="${esc(`启用对照配置 ${g.name || g.id}`)}"></td>
-        <td><span class="row-name" title="${esc(g.name)}">${esc(g.name || g.id)}</span>${missing ? ' <span class="pill warn">待补全</span>' : ''}</td>
-        <td>${tpl ? esc(tpl.name || tpl.id) : '<span class="status-tag failed">模板缺失</span>'}</td>
-        <td class="cell-mono" title="${esc(g.model)}">${g.model ? esc(g.model) : '<span class="param-omit">未填写</span>'}</td>
-        <td>${prov ? `<div>${esc(prov.name || prov.id)}</div><div class="cred-meta">${providerProtocolTag(prov)}</div>` : '<span class="status-tag failed">Provider 缺失</span>'}</td>
-        <td class="param-cell">${paramCell(g.parameters, 'temperature')}</td>
-        <td class="param-cell">${paramCell(g.parameters, 'reasoning_effort')}</td>
-        <td class="num">${esc(String(g.runs))}</td>
-        <td>
-          <div class="row-actions">
-            <button type="button" class="mini-btn" data-group-edit="${esc(g.id)}" title="编辑配置" aria-label="${esc(`编辑 ${g.name || g.id}`)}">${ICON_EDIT}</button>
-            <button type="button" class="mini-btn danger" data-group-delete="${esc(g.id)}" title="删除配置" aria-label="${esc(`删除 ${g.name || g.id}`)}">${ICON_TRASH}</button>
-          </div>
-        </td>
-      </tr>`;
+      <div class="group-summary ${g.id === App.activeGroupId ? 'active' : ''} ${g.enabled ? '' : 'disabled'}" data-group-row="${esc(g.id)}">
+        <label class="group-check" title="启用或停用该配置">
+          <input type="checkbox" data-group-enabled="${esc(g.id)}" ${g.enabled ? 'checked' : ''} aria-label="${esc(`启用对照配置 ${g.name || g.id}`)}">
+        </label>
+        <button type="button" class="group-main" data-group-select="${esc(g.id)}">
+          <span class="group-name">${esc(g.name || g.id)}${missing ? ' <span class="pill warn">待补全</span>' : ''}${credWarn ? ' <span class="pill warn">凭据不可用</span>' : ''}</span>
+          <span class="group-meta">${esc(prov ? (prov.name || prov.id) : 'Provider 缺失')} · <span class="mono">${esc(g.model || '模型未填写')}</span> · 每 Case ${esc(String(g.runs))} 次</span>
+          <span class="group-routes">${groupRoutesHtml(g)}</span>
+        </button>
+        <button type="button" class="btn tiny" data-group-edit="${esc(g.id)}">${ICON_EDIT}编辑</button>
+      </div>`;
   }).join('');
 }
 
-function setActiveGroup(id, { renderRight = true } = {}) {
+function setActiveGroup(id) {
   const g = groupById(id);
   if (!g) return;
   App.activeGroupId = id;
@@ -1329,9 +1110,10 @@ function setActiveGroup(id, { renderRight = true } = {}) {
     renderTemplateOptions();
     renderTemplateEditor();
   }
-  renderGroups();
-  if (renderRight) renderRightConfig();
-  if (!bound) renderTemplateMismatch();
+  renderGroupCards();
+  renderWorkbenchCase();
+  renderTemplateMismatch();
+  renderShell();
   markPreviewStale('已切换对照配置');
 }
 
@@ -1349,7 +1131,8 @@ function nextGroupDefaults() {
     provider_id: App.state.providers[0]?.id || '',
     model: '',
     parameters: {},
-    runs: App.state.settings.default_runs || 20
+    runs: App.state.settings.default_runs || 20,
+    language_routes: []
   };
 }
 
@@ -1359,383 +1142,10 @@ function deleteGroup(id) {
   if (!window.confirm(`删除对照配置「${g.name || g.id}」？历史批次不受影响。`)) return;
   App.state.draft.groups = App.state.draft.groups.filter((x) => x.id !== id);
   if (App.activeGroupId === id) App.activeGroupId = App.state.draft.groups[0]?.id || null;
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
   markPreviewStale('对照配置已删除');
-}
-
-/* ------------------------------------------------------------------ */
-/* Right run configuration                                             */
-/* ------------------------------------------------------------------ */
-
-function paramTempState(params) {
-  if (!hasOwn(params, 'temperature')) return { mode: 'omit', value: '' };
-  if (params.temperature === null) return { mode: 'null', value: '' };
-  return { mode: 'value', value: String(params.temperature) };
-}
-
-function paramReasoningState(params) {
-  if (!hasOwn(params, 'reasoning_effort')) return { mode: 'omit', value: '' };
-  const value = params.reasoning_effort;
-  if (value === null) return { mode: 'null', value: '' };
-  if (['none', 'low', 'medium', 'high'].includes(value)) return { mode: value, value: '' };
-  return { mode: 'custom', value: typeof value === 'string' ? value : JSON.stringify(value) };
-}
-
-function applyParamControls(prefix, params) {
-  const temp = paramTempState(params);
-  const tempMode = $(`${prefix}-temp-mode`);
-  const tempValue = $(`${prefix}-temp-value`);
-  if (tempMode) tempMode.value = temp.mode;
-  if (tempValue) {
-    tempValue.value = temp.value;
-    tempValue.hidden = temp.mode !== 'value';
-    tempValue.disabled = temp.mode !== 'value';
-  }
-  const reasoning = paramReasoningState(params);
-  const rMode = $(`${prefix}-reasoning-mode`);
-  if (rMode) rMode.value = reasoning.mode;
-}
-
-function renderRightConfig() {
-  if (!App.state) return;
-  const groups = App.state.draft.groups;
-  const groupSelect = $('cfg-group-select');
-  groupSelect.innerHTML = groups.length
-    ? groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name || g.id)}${g.enabled ? '' : '（已禁用）'}</option>`).join('')
-    : '<option value="">（无配置）</option>';
-  if (App.activeGroupId && !groupById(App.activeGroupId)) App.activeGroupId = groups[0]?.id || null;
-  groupSelect.value = App.activeGroupId || '';
-  const g = activeGroup();
-  const controls = ['cfg-provider', 'cfg-model', 'cfg-temp-mode', 'cfg-temp-value', 'cfg-reasoning-mode'];
-  for (const id of controls) $(id).disabled = !g;
-  $('edit-group-btn').disabled = !g;
-
-  const providerSelect = $('cfg-provider');
-  providerSelect.innerHTML = App.state.providers.length
-    ? App.state.providers.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)} · ${esc(protocolLabel(p.protocol || '未设置协议'))}</option>`).join('')
-    : '<option value="">（无 Provider）</option>';
-  if (!g) {
-    providerSelect.value = '';
-    $('cfg-model').value = '';
-    $('cfg-provider-hint').textContent = '尚无对照配置。请在下方表格添加配置。';
-    $('cfg-provider-hint').className = 'provider-hint warn';
-    applyParamControls('cfg', {});
-    $('cfg-temp-value').disabled = true;
-    return;
-  }
-  providerSelect.value = g.provider_id || '';
-  if (document.activeElement !== $('cfg-model')) $('cfg-model').value = g.model || '';
-  applyParamControls('cfg', g.parameters);
-  renderRightProviderHint();
-}
-
-function renderRightProviderHint() {
-  const g = activeGroup();
-  const hint = $('cfg-provider-hint');
-  if (!hint) return;
-  if (!g) {
-    hint.textContent = '尚无对照配置。';
-    hint.className = 'provider-hint warn';
-    hint.title = '';
-    return;
-  }
-  const tpl = templateById(g.template_id);
-  const prov = providerById(g.provider_id);
-  const bits = [];
-  let warn = false;
-  if (!tpl) { bits.push('模板缺失'); warn = true; }
-  if (!prov) {
-    bits.push('Provider 缺失');
-    warn = true;
-  } else {
-    const protocol = protocolLabel(prov.protocol || '未设置协议');
-    bits.push(protocol);
-    if (!App.providerProtocolsLoaded || !isKnownProtocol(prov.protocol)) warn = true;
-    const pending = pendingCredentialFor(prov.id);
-    const meta = credentialMeta(prov.id);
-    if (pending && pending.kind === 'set') bits.push('手动密钥待保存');
-    else if (pending && pending.kind === 'clear') {
-      bits.push(meta && meta.env_available ? '待清除 · 回退环境变量' : '待清除 · 环境变量缺失');
-      if (meta && meta.requires_auth && !meta.env_available) warn = true;
-    } else if (meta) {
-      const src = credentialSourceBadge(meta);
-      bits.push(src.label);
-      if (meta.requires_auth && !meta.available) warn = true;
-    } else {
-      bits.push('凭据未验证');
-      warn = true;
-    }
-    if (prov.api_key_env) bits.push(`env ${prov.api_key_env}`);
-    hint.title = [prov.name || prov.id, prov.base_url || '', protocol].filter(Boolean).join(' · ');
-  }
-  if (!String(g.model || '').trim()) { bits.push('模型 ID 为空'); warn = true; }
-  hint.textContent = bits.join(' · ');
-  hint.className = `provider-hint${warn ? ' warn' : ''}`;
-}
-
-function setParam(params, key, mode, rawValue) {
-  if (mode === 'omit') {
-    delete params[key];
-    return true;
-  }
-  if (mode === 'null') {
-    params[key] = null;
-    return true;
-  }
-  if (key === 'temperature') {
-    const n = Number(rawValue);
-    if (rawValue === '' || !Number.isFinite(n)) return false;
-    params[key] = n;
-    return true;
-  }
-  if (mode === 'custom') {
-    if (!rawValue) return false;
-    params[key] = rawValue;
-    return true;
-  }
-  params[key] = mode;
-  return true;
-}
-
-function handleRightTempModeChange() {
-  const g = activeGroup();
-  if (!g) return;
-  const mode = $('cfg-temp-mode').value;
-  const valueInput = $('cfg-temp-value');
-  valueInput.hidden = mode !== 'value';
-  valueInput.disabled = mode !== 'value';
-  if (mode === 'value') {
-    if (!valueInput.value) valueInput.value = hasOwn(g.parameters, 'temperature') && typeof g.parameters.temperature === 'number' ? String(g.parameters.temperature) : '0.1';
-    const n = Number(valueInput.value);
-    if (Number.isFinite(n)) g.parameters.temperature = n;
-  } else if (mode === 'null') {
-    g.parameters.temperature = null;
-  } else {
-    delete g.parameters.temperature;
-  }
-  afterGroupParameterEdit();
-}
-
-function handleRightTempValueChange() {
-  const g = activeGroup();
-  if (!g) return;
-  const input = $('cfg-temp-value');
-  const n = Number(input.value);
-  if (input.value === '' || !Number.isFinite(n)) {
-    input.value = hasOwn(g.parameters, 'temperature') && typeof g.parameters.temperature === 'number' ? String(g.parameters.temperature) : '';
-    toast('温度必须是数值；未修改参数。', 'error');
-    return;
-  }
-  g.parameters.temperature = n;
-  afterGroupParameterEdit();
-}
-
-function handleRightReasoningModeChange() {
-  const g = activeGroup();
-  if (!g) return;
-  const mode = $('cfg-reasoning-mode').value;
-  if (mode === 'custom') {
-    applyParamControls('cfg', g.parameters);
-    toast('非标准思考强度只在高级 JSON 中编辑；已打开完整参数。', 'info', 3000);
-    openGroupDialog(g.id);
-    return;
-  }
-  if (mode === 'omit') delete g.parameters.reasoning_effort;
-  else if (mode === 'null') g.parameters.reasoning_effort = null;
-  else g.parameters.reasoning_effort = mode;
-  afterGroupParameterEdit();
-}
-
-function afterGroupParameterEdit() {
-  renderGroups();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('请求参数已修改');
-}
-
-function handleGroupModelInput() {
-  const g = activeGroup();
-  if (!g) return;
-  g.model = $('cfg-model').value;
-  renderGroups();
-  renderRightProviderHint();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('模型已修改');
-}
-
-/* ------------------------------------------------------------------ */
-/* Group dialog (advanced parameters)                                   */
-/* ------------------------------------------------------------------ */
-
-function openGroupDialog(id = null) {
-  if (!App.state) return;
-  const existing = id ? groupById(id) : null;
-  const working = existing ? clone(existing) : nextGroupDefaults();
-  if (id && !existing) return;
-  App.groupDialog = { mode: existing ? 'edit' : 'create', id: working.id, params: clone(working.parameters || {}) };
-  $('group-dialog-title').textContent = existing ? '编辑对照配置' : '添加对照配置';
-  $('group-name').value = working.name;
-  $('group-enabled').checked = working.enabled;
-  $('group-runs').value = working.runs;
-  $('group-model').value = working.model || '';
-  const tplSelect = $('group-template');
-  tplSelect.innerHTML = App.state.templates.length
-    ? App.state.templates.map((t) => `<option value="${esc(t.id)}">${esc(t.name || t.id)}</option>`).join('')
-    : '<option value="">（无模板）</option>';
-  tplSelect.value = working.template_id || '';
-  const provSelect = $('group-provider');
-  provSelect.innerHTML = App.state.providers.length
-    ? App.state.providers.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)} · ${esc(protocolLabel(p.protocol || '未设置协议'))}</option>`).join('')
-    : '<option value="">（无 Provider）</option>';
-  provSelect.value = working.provider_id || '';
-  $('group-params').value = pretty(App.groupDialog.params);
-  applyParamControls('group', App.groupDialog.params);
-  $('group-error').textContent = '';
-  $('group-params').removeAttribute('aria-invalid');
-  $('group-dialog').showModal();
-  window.setTimeout(() => $('group-name').focus(), 0);
-}
-
-function syncGroupParamsTextarea() {
-  const ta = $('group-params');
-  if (!ta) return;
-  if (document.activeElement === ta || ta.getAttribute('aria-invalid') === 'true') return;
-  ta.value = pretty(App.groupDialog.params);
-}
-
-function handleGroupParamQuickChange(field) {
-  const params = App.groupDialog.params;
-  if (field === 'temp') {
-    const mode = $('group-temp-mode').value;
-    const valueInput = $('group-temp-value');
-    valueInput.hidden = mode !== 'value';
-    valueInput.disabled = mode !== 'value';
-    let raw = valueInput.value;
-    if (mode === 'value' && !raw) {
-      raw = hasOwn(params, 'temperature') && typeof params.temperature === 'number' ? String(params.temperature) : '0.1';
-      valueInput.value = raw;
-    }
-    if (!setParam(params, 'temperature', mode, raw)) return;
-  } else {
-    const mode = $('group-reasoning-mode').value;
-    if (mode === 'custom') {
-      applyParamControls('group', params);
-      return;
-    }
-    if (!setParam(params, 'reasoning_effort', mode, '')) return;
-  }
-  syncGroupParamsTextarea();
-}
-
-function parseGroupParamsText() {
-  const ta = $('group-params');
-  let parsed;
-  try {
-    parsed = JSON.parse(ta.value);
-  } catch (err) {
-    throw new Error(`高级参数 JSON 解析失败：${err.message}`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('高级参数必须是 JSON 对象。');
-  }
-  for (const reserved of ['model', 'messages', 'stream']) {
-    if (hasOwn(parsed, reserved)) throw new Error(`参数中不允许保留字段「${reserved}」。`);
-  }
-  for (const key of Object.keys(parsed)) {
-    const lower = key.toLowerCase();
-    if (['authorization', 'api_key', 'api-key', 'apikey', 'headers', 'extra_headers'].includes(lower)) {
-      throw new Error(`参数「${key}」可能包含凭据；请改用 Provider 的环境变量引用。`);
-    }
-  }
-  return parsed;
-}
-
-function submitGroupDialog(event) {
-  event.preventDefault();
-  if (!App.state) return;
-  const errEl = $('group-error');
-  errEl.textContent = '';
-  $('group-params').removeAttribute('aria-invalid');
-  const name = $('group-name').value.trim();
-  const model = $('group-model').value.trim();
-  const templateId = $('group-template').value;
-  const providerId = $('group-provider').value;
-  const runs = Number($('group-runs').value);
-  if (!name) {
-    errEl.textContent = '配置名称不能为空。';
-    $('group-name').focus();
-    return;
-  }
-  if (!templateId || !templateById(templateId)) {
-    errEl.textContent = '请选择存在的模板。';
-    $('group-template').focus();
-    return;
-  }
-  if (!providerId || !providerById(providerId)) {
-    errEl.textContent = '请选择存在的 Provider。';
-    $('group-provider').focus();
-    return;
-  }
-  if (!model) {
-    errEl.textContent = '模型 ID 不能为空（可自由输入，不受硬编码允许列表限制）。';
-    $('group-model').focus();
-    return;
-  }
-  if (!Number.isInteger(runs) || runs < 1 || runs > 1000) {
-    errEl.textContent = '每 case 次数必须为 1–1000 的整数。';
-    $('group-runs').focus();
-    return;
-  }
-  let params;
-  try {
-    params = parseGroupParamsText();
-  } catch (err) {
-    errEl.textContent = err.message;
-    $('group-params').setAttribute('aria-invalid', 'true');
-    $('group-params').focus();
-    return;
-  }
-  if ($('group-temp-mode').value === 'value') {
-    const n = Number($('group-temp-value').value);
-    if ($('group-temp-value').value === '' || !Number.isFinite(n)) {
-      errEl.textContent = '温度模式为“数值”时必须填写有效数字；若不应发送，请选择“未发送”。';
-      $('group-temp-value').focus();
-      return;
-    }
-    params.temperature = n;
-  }
-  const group = {
-    id: App.groupDialog.id,
-    name,
-    enabled: $('group-enabled').checked,
-    template_id: templateId,
-    provider_id: providerId,
-    model,
-    parameters: params,
-    runs
-  };
-  const idx = App.state.draft.groups.findIndex((g) => g.id === group.id);
-  if (idx >= 0) App.state.draft.groups[idx] = group;
-  else App.state.draft.groups.push(group);
-  App.activeGroupId = group.id;
-  const boundTemplate = templateById(group.template_id);
-  if (boundTemplate) {
-    App.activeTemplateId = boundTemplate.id;
-    App.activeMessageIndex = 0;
-  }
-  $('group-dialog').close();
-  renderTemplateOptions();
-  renderTemplateEditor();
-  renderGroups();
-  renderRightConfig();
-  renderModelSuggestions();
-  updateDirtyUI();
-  refreshRunPlan();
-  markPreviewStale('对照配置已修改');
 }
 
 /* ------------------------------------------------------------------ */
@@ -1752,6 +1162,33 @@ function validateSettings(settings) {
   }
   if (!Number.isInteger(settings.timeout_seconds) || settings.timeout_seconds < 1 || settings.timeout_seconds > 3600) {
     errors.push('请求超时必须为 1–3600 秒。');
+  }
+  return errors;
+}
+
+function validateRoutes(routes) {
+  const errors = [];
+  if (!Array.isArray(routes)) return ['语言路由必须是数组。'];
+  const seen = new Set();
+  for (const route of routes) {
+    const source = route && typeof route.source_language === 'string' ? route.source_language : '';
+    if (!source || source.trim() !== source) {
+      errors.push('每条语言路由都需要非空源语言，且不能有首尾空白。');
+      continue;
+    }
+    if (seen.has(source)) errors.push(`源语言「${source}」重复；每组同源语言只能有一条规则。`);
+    seen.add(source);
+    const targets = Array.isArray(route.targets) ? route.targets : [];
+    if (!targets.length) errors.push(`源语言「${source}」至少需要一个目标语言。`);
+    const keys = new Set();
+    for (const t of targets) {
+      const key = t && typeof t.key === 'string' ? t.key : '';
+      const name = t && typeof t.name === 'string' ? t.name : '';
+      if (!key || key.trim() !== key) errors.push(`源语言「${source}」的目标响应键不能为空且有首尾空白。`);
+      if (!name || !name.trim() || name.trim() !== name) errors.push(`源语言「${source}」的目标名称不能为空且有首尾空白。`);
+      if (keys.has(key)) errors.push(`源语言「${source}」的目标响应键「${key}」重复。`);
+      keys.add(key);
+    }
   }
   return errors;
 }
@@ -1787,8 +1224,7 @@ function computeRunPlan() {
         }
       } else if (meta) {
         if (meta.requires_auth && !meta.available) {
-          const src = credentialSourceBadge(meta).label;
-          errors.push(`Provider「${prov.name || prov.id}」缺少可用凭据（${src}），协议要求认证。`);
+          errors.push(`Provider「${prov.name || prov.id}」缺少可用凭据，协议要求认证。`);
         } else if (!meta.requires_auth) {
           warnings.push(`Provider「${prov.name || prov.id}」允许无认证请求。`);
         }
@@ -1802,12 +1238,13 @@ function computeRunPlan() {
     if (!String(g.model || '').trim()) errors.push(`配置「${label}」未填写模型 ID。`);
     if (!Number.isInteger(runs) || runs < 1 || runs > 1000) errors.push(`配置「${label}」的每 case 次数必须是 1–1000 的整数。`);
     else runsPerCase += runs;
+    for (const err of validateRoutes(g.language_routes || [])) errors.push(`配置「${label}」：${err}`);
   }
-  if (!cases.length) errors.push('未选择任何 case（在左侧勾选参与运行的 case）。');
-  const rawCaseIds = App.state.draft.case_ids;
-  if (new Set(rawCaseIds).size !== rawCaseIds.length) errors.push('草稿中的 case 选择包含重复 ID。');
-  const dangling = rawCaseIds.filter((id) => !caseById(id));
-  if (dangling.length) errors.push(`草稿引用了不存在的 case：${dangling.join(', ')}。请删除或重新载入。`);
+  if (!cases.length) errors.push('本次运行范围没有 Case（在右侧选择集合，或从 Case 库“用于调试”）。');
+  const danglingCollections = App.state.draft.collection_ids.filter((id) => !collectionById(id));
+  if (danglingCollections.length) errors.push(`草稿引用了不存在的集合：${danglingCollections.join(', ')}。`);
+  const unknownExcluded = App.state.draft.excluded_case_ids.filter((id) => !caseById(id));
+  if (unknownExcluded.length) errors.push(`临时排除包含不存在的 Case：${unknownExcluded.join(', ')}。`);
   if (!enabledGroups.length) errors.push('没有启用任何对照配置。');
   const total = cases.length * runsPerCase;
   if (total > 100000) errors.push(`总请求数 ${total} 超过单批次上限 100000。`);
@@ -1831,15 +1268,15 @@ function refreshRunPlan() {
   const totalLine = $('total-line');
   if (totalLine) {
     totalLine.textContent = plan.total
-      ? `${plan.cases.length} 个 case × ${plan.runsPerCase} 次 = ${plan.total} 次请求 · 并发 ≤ ${plan.concurrency}`
-      : '选择案例并启用配置后开始运行';
+      ? `${plan.cases.length} 个 Case × ${plan.runsPerCase} 次 = ${plan.total} 次请求 · 并发 ≤ ${plan.concurrency}`
+      : '选择 Case 并启用配置后开始运行';
   }
   const btn = $('run-btn');
   const label = $('run-btn-label');
   if (!btn || !label) return;
   const active = hasKnownActiveBatch();
   const stopping = App.currentDetail?.batch?.status === 'stopping';
-  const disabled = active || App.saving || App.loading || plan.errors.length > 0 || plan.total <= 0;
+  const disabled = active || App.saving || App.loading || App.mutating || plan.errors.length > 0 || plan.total <= 0;
   btn.disabled = disabled;
   btn.classList.toggle('busy', active);
   label.textContent = active
@@ -1847,7 +1284,7 @@ function refreshRunPlan() {
     : (plan.total > 0 ? `运行 ${plan.total} 次` : '运行');
   btn.title = plan.errors.length
     ? `无法运行：${plan.errors[0]}`
-    : (active ? '已有批次运行中；可在运行输出面板查看或停止' : '保存草稿并以当前选择启动批次');
+    : (active ? '已有批次运行中；可在运行输出面板查看或停止' : '保存草稿并以当前范围启动批次');
   updateDirtyUI();
 }
 
@@ -1860,32 +1297,93 @@ function renderRunValidation(plan) {
   if (!plan.errors.length && plan.total > 0) {
     lines.push(`<div class="validation-line ok">● 校验通过：${esc(String(plan.total))} 次请求，待保存后启动。</div>`);
   } else if (!plan.errors.length) {
-    lines.push('<div class="validation-line warn">○ 尚未选择可运行的 case 或配置。</div>');
+    lines.push('<div class="validation-line warn">○ 尚未选择可运行的 Case 或配置。</div>');
   }
   el.innerHTML = lines.join('');
+}
+
+/* ------------------------------------------------------------------ */
+/* Selection preview (authoritative counts)                            */
+/* ------------------------------------------------------------------ */
+
+function selectionKey(selection) {
+  return JSON.stringify({
+    v: App.version,
+    cases: [...(selection.case_ids || [])],
+    collections: [...(selection.collection_ids || [])],
+    excluded: [...(selection.excluded_case_ids || [])],
+    groups: App.state.draft.groups.map((g) => [g.id, g.enabled, g.runs, g.language_routes]),
+    runs: App.state.settings.default_runs
+  });
+}
+
+function currentAppliedSelection() {
+  const draft = App.state.draft;
+  return {
+    case_ids: [...draft.case_ids],
+    collection_ids: [...draft.collection_ids],
+    excluded_case_ids: [...draft.excluded_case_ids]
+  };
+}
+
+function scheduleSelectionPreview(delay = 220) {
+  if (App.selectionTimer) window.clearTimeout(App.selectionTimer);
+  App.selectionTimer = window.setTimeout(() => {
+    App.selectionTimer = null;
+    refreshSelectionPreview({ silent: true });
+  }, delay);
+}
+
+async function refreshSelectionPreview({ selection = null, silent = false } = {}) {
+  if (!App.state) return null;
+  const sel = selection || currentAppliedSelection();
+  const key = selectionKey(sel);
+  App.selectionPreviewKey = key;
+  App.selectionPreviewStale = true;
+  if (!silent && typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  try {
+    const data = await apiPost('/api/selection/preview', {
+      state_version: App.version,
+      case_ids: sel.case_ids,
+      collection_ids: sel.collection_ids,
+      excluded_case_ids: sel.excluded_case_ids,
+      groups: App.state.draft.groups.map(clone)
+    });
+    if (App.selectionPreviewKey !== key) return null;
+    App.selectionPreview = { key, data, forStaging: !!selection };
+    App.selectionPreviewStale = false;
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+    return data;
+  } catch (err) {
+    if (App.selectionPreviewKey !== key) return null;
+    App.selectionPreviewStale = true;
+    App.selectionPreview = { key, error: err.message, forStaging: !!selection };
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+    if (!silent && err.status === 409) {
+      showBanner('运行范围预览冲突：服务端状态版本已变化（409）。请重新载入后再操作。', 'error', reloadFromServer);
+    }
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* Save / reload                                                       */
 /* ------------------------------------------------------------------ */
 
+function editableStateSnapshot() {
+  return {
+    templates: clone(App.state.templates),
+    providers: clone(App.state.providers),
+    settings: clone(App.state.settings),
+    draft: clone(App.state.draft)
+  };
+}
+
 async function saveState({ silent = false } = {}) {
   if (!App.state) return false;
-  if (App.saving) return false;
+  if (App.saving || App.mutating) return false;
   if (App.settingsError.length) {
     showBanner(`设置存在错误，未保存：${App.settingsError[0]}`, 'error');
-    return false;
-  }
-  if (hasVarErrors()) {
-    const id = [...App.varErrors.keys()][0];
-    App.activeCaseId = caseById(id) ? id : App.activeCaseId;
-    App.editorTab = 'variables';
-    renderCaseList();
-    setEditorTabUI();
-    syncVariablesEditor();
-    showBanner('变量 JSON 存在解析错误，未保存。请修正编辑器中的 JSON。', 'error');
-    const ta = $('variables-json');
-    if (ta) ta.focus();
     return false;
   }
   if (!isDirty() && !hasPendingCredentials()) {
@@ -1893,63 +1391,68 @@ async function saveState({ silent = false } = {}) {
     return true;
   }
   App.saving = true;
+  const gen = App.editGeneration;
   updateDirtyUI();
   refreshRunPlan();
-  const submitted = clone(App.state);
-  submitted.version = App.version;
-  delete submitted.credentials;
+  const editable = editableStateSnapshot();
   const submittedMutations = new Map();
   for (const [id, mutation] of App.credentialMutations) submittedMutations.set(id, { ...mutation });
   const credentialUpdates = {};
   for (const [id, mutation] of submittedMutations) {
     if (mutation.kind === 'set') {
-      if (submitted.providers.some((p) => p.id === id)) credentialUpdates[id] = { action: 'set', key: mutation.value };
+      if (editable.providers.some((p) => p.id === id)) credentialUpdates[id] = { action: 'set', key: mutation.value };
     } else if (mutation.kind === 'clear') {
       credentialUpdates[id] = { action: 'clear' };
     }
   }
-  const body = clone(submitted);
+  // Generic PUT is narrow on purpose: cases/collections are authoritative through dedicated
+  // endpoints, so browser number normalization can never rewrite imported Case input.
+  const body = {
+    version: App.version,
+    templates: editable.templates,
+    providers: editable.providers,
+    settings: editable.settings,
+    draft: editable.draft
+  };
   if (Object.keys(credentialUpdates).length) body.credential_updates = credentialUpdates;
   try {
-    const res = await apiPut('/api/state', body);
-    const nextVersion = res && Number.isFinite(Number(res.version)) ? Number(res.version) : App.version + 1;
-    App.version = nextVersion;
-    App.state.version = nextVersion;
-    if (res && Object.prototype.hasOwnProperty.call(res, 'credentials')) {
-      App.credentials = normalizeCredentials(res.credentials);
-    }
-    let savedSnapshot;
-    if (res && Array.isArray(res.providers) && Array.isArray(res.cases)) {
-      const serverState = clone(res);
-      delete serverState.credentials;
-      delete serverState.credential_updates;
-      savedSnapshot = normalizeState(serverState);
-      savedSnapshot.version = nextVersion;
-      for (const sp of savedSnapshot.providers) {
-        const lp = providerById(sp.id);
-        if (!lp) continue;
-        if (sp.credential_ref) lp.credential_ref = sp.credential_ref;
-        if (!lp.protocol && sp.protocol) lp.protocol = sp.protocol;
-      }
+    const { payload } = await apiRaw('/api/state', { method: 'PUT', body });
+    const serverState = normalizeState(clone(payload));
+    const serverJson = stableStringify(serverState);
+    App.version = serverState.version;
+    App.credentials = normalizeCredentials(payload.credentials);
+    App.savedAt = new Date();
+    App.savedJson = serverJson;
+    if (gen === App.editGeneration) {
+      const keepActiveCase = App.activeCaseId;
+      const keepActiveGroup = App.activeGroupId;
+      App.state = serverState;
+      ensureSelections();
+      if (caseById(keepActiveCase)) App.activeCaseId = keepActiveCase;
+      if (groupById(keepActiveGroup)) App.activeGroupId = keepActiveGroup;
+      renderTemplateOptions();
+      renderTemplateEditor();
+      renderGroupCards();
+      renderSettings();
+      renderWorkbenchCase();
     } else {
-      savedSnapshot = clone(submitted);
-      savedSnapshot.version = nextVersion;
+      App.state.version = App.version;
+      showBanner('保存期间有新编辑：服务端已保存提交时的版本，当前页面内容未被覆盖。确认后可再次保存。', 'warn');
     }
-    App.savedJson = stableStringify(savedSnapshot);
     for (const [id, mutation] of submittedMutations) {
       const current = App.credentialMutations.get(id);
       if (current && sameValue(current, mutation)) App.credentialMutations.delete(id);
     }
-    App.savedAt = new Date();
     hideBanner();
     clearEditorRenderError();
     renderProviders();
-    renderRightProviderHint();
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
     if (!silent) {
       toast(submittedMutations.size
         ? '草稿与手动凭据已保存（凭据由后端加密存储）。运行中的批次继续使用其冻结快照。'
         : '草稿已保存。运行中的批次继续使用其冻结快照。', 'ok');
     }
+    if (typeof scheduleSelectionPreview === 'function') scheduleSelectionPreview(0);
     return true;
   } catch (err) {
     if (err.status === 409) {
@@ -1972,15 +1475,10 @@ async function saveState({ silent = false } = {}) {
 
 async function ensureSaved() {
   if (!App.state) return false;
-  if (hasVarErrors()) {
-    showBanner('变量 JSON 存在解析错误，未执行。请先修正编辑器。', 'error');
-    showVariablesError(App.varErrors.get(App.activeCaseId) || '');
-    return false;
-  }
   if (!isDirty() && !hasPendingCredentials()) return true;
   const ok = await saveState({ silent: true });
   if (!ok) return false;
-  if (isDirty() || hasVarErrors() || hasPendingCredentials()) {
+  if (isDirty() || hasPendingCredentials()) {
     markPreviewStale('保存期间草稿或凭据又有编辑');
     showBanner('保存期间草稿又被编辑，本次操作未执行。请确认当前内容后再次点击。', 'warn');
     toast('保存期间草稿有新的编辑，已取消本次预览/运行', 'error', 5000);
@@ -1991,21 +1489,26 @@ async function ensureSaved() {
 }
 
 async function reloadFromServer() {
-  if (hasUnsavedWork() && !window.confirm('重新载入会丢弃本地未保存更改（包括编辑器内容、待保存的手动密钥）。继续？')) return;
+  if (hasUnsavedWork() && !window.confirm('重新载入会丢弃本地未保存更改（包括编辑器内容、待保存的手动密钥）。继续？')) return false;
   App.credentialMutations.clear();
   try {
     await loadState();
     App.preview = null;
     App.previewStale = true;
     App.historyDetail = null;
+    App.caseEditor = null;
+    App.groupEditor = null;
+    App.io.preview = null;
     hideBanner();
     renderAll();
     renderPreviewState();
     await refreshRuns({ quiet: true });
     refreshPreview({ silent: true });
     toast('已重新载入服务端状态', 'ok');
+    return true;
   } catch (err) {
     showBanner(`重新载入失败：${err.message}`, 'error', reloadFromServer);
+    return false;
   }
 }
 
@@ -2033,6 +1536,7 @@ function renderPreviewState() {
     $('preview-endpoint').textContent = '—';
     $('preview-hash').textContent = '—';
     $('preview-protocol').textContent = '—';
+    if ($('preview-language')) $('preview-language').textContent = '—';
     $('preview-endpoint').title = '';
     $('preview-hash').title = '';
     $('preview-protocol').title = '';
@@ -2072,7 +1576,6 @@ async function refreshPreview({ silent = false } = {}) {
       renderPreviewState();
       return;
     }
-    // Re-read selection after the await: it may have changed while saving.
     const c = activeCase();
     const g = activeGroup();
     if (!c || !g) {
@@ -2100,6 +1603,13 @@ async function refreshPreview({ silent = false } = {}) {
     $('preview-endpoint').title = requestLine;
     $('preview-hash').textContent = res.prompt_hash || '—';
     $('preview-hash').title = res.prompt_hash || '';
+    if ($('preview-language')) {
+      const lr = res.language_resolution;
+      $('preview-language').textContent = lr
+        ? `${lr.source_language || '（未设置）'} → ${(lr.targets || []).map((t) => t.key).join(', ') || '—'}${lr.used_default ? ' · 默认' : ''}`
+        : '—';
+      $('preview-language').title = $('preview-language').textContent;
+    }
     const headers = res.headers && typeof res.headers === 'object' && !Array.isArray(res.headers) ? res.headers : null;
     const hasHeaders = !!headers && Object.keys(headers).length > 0;
     $('preview-headers').textContent = hasHeaders ? pretty(headers) : '（无额外非认证请求头）';
@@ -2116,7 +1626,7 @@ async function refreshPreview({ silent = false } = {}) {
       $('preview-error').textContent = `预览冲突：${err.message}`;
       $('preview-state').textContent = '冲突';
       $('preview-state').className = 'pill err';
-      showEditorRenderError(`预览未执行：服务端状态版本已变化（409）。请重新载入后再预览，避免展示过期请求。`);
+      showEditorRenderError('预览未执行：服务端状态版本已变化（409）。请重新载入后再预览，避免展示过期请求。');
       showBanner('预览冲突：服务端状态版本已变化（可能另一标签页保存了草稿）。未使用过期状态生成预览。', 'error', reloadFromServer);
       return;
     }
@@ -2170,7 +1680,7 @@ async function copyPreview() {
 /* ------------------------------------------------------------------ */
 
 async function startRun() {
-  if (!App.state || App.saving || App.loading) return;
+  if (!App.state || App.saving || App.loading || App.mutating) return;
   let plan = computeRunPlan();
   if (plan.errors.length) {
     showBanner(`无法启动：${plan.errors[0]}`, 'error');
@@ -2202,8 +1712,10 @@ async function startRun() {
   try {
     const body = {
       name: (App.state.draft.name || '').trim() || '未命名批次',
-      case_ids: plan.cases,
-      groups: plan.enabledGroups.map(clone),
+      case_ids: [...App.state.draft.case_ids],
+      collection_ids: [...App.state.draft.collection_ids],
+      excluded_case_ids: [...App.state.draft.excluded_case_ids],
+      groups: App.state.draft.groups.filter((g) => g.enabled).map(clone),
       concurrency: clampInt(App.state.settings.concurrency, 1, 20, 20),
       state_version: App.version
     };
@@ -2211,7 +1723,7 @@ async function startRun() {
     App.currentRunId = batch.id;
     App.currentDetail = null;
     App.expandedResults.clear();
-    setView('workbench');
+    setView('workbench', { force: true });
     setOutputTab('results');
     await loadRunIntoOutput(batch.id);
     startPolling();
@@ -2286,7 +1798,6 @@ async function pollCurrentRun() {
       await refreshRuns({ quiet: true });
       if (wasActive || App.batchSeenActive) {
         const summary = detail.batch;
-        const finished = (summary.completed || 0) + (summary.failed || 0) + (summary.cancelled || 0) + (summary.interrupted || 0);
         toast(`批次 #${summary.id} ${statusLabel(summary.status)}：完成 ${summary.completed || 0}/${summary.total || 0}，失败 ${summary.failed || 0}`, summary.failed ? 'error' : 'ok', 5000);
         App.batchSeenActive = false;
       }
@@ -2327,7 +1838,6 @@ async function refreshRuns({ quiet = false } = {}) {
     App.runs = Array.isArray(payload) ? payload : [];
     App.runsLoaded = true;
     App.lastRunsSignature = JSON.stringify(App.runs.map((b) => [b.id, b.status, b.completed, b.failed, b.total]));
-    renderRecentRuns();
     renderHistoryList();
     refreshRunPlan();
   } catch (err) {
@@ -2484,12 +1994,6 @@ function resultRowHtml(r) {
   const snippetSource = output || error || (r.status === 'running' ? '正在等待模型响应…' : r.status === 'pending' ? '尚未派发' : '（无输出）');
   const snippet = String(snippetSource).replace(/\s+/g, ' ').slice(0, 240);
   const started = r.started_at ? fmtTime(r.started_at) : '—';
-  const metaBits = [
-    `#${r.iteration}`,
-    r.response_model ? `响应模型 ${r.response_model}` : '',
-    r.http_status ? `HTTP ${r.http_status}` : '',
-    r.prompt_hash ? `hash ${r.prompt_hash.slice(0, 16)}…` : ''
-  ].filter(Boolean);
   return `
     <details class="result-details" data-rid="${esc(r.id)}" ${open}>
       <summary class="result-summary">
@@ -2545,6 +2049,7 @@ function snapshotHtml(snapshot) {
   const templates = Array.isArray(snapshot.templates) ? snapshot.templates : [];
   const providers = Array.isArray(snapshot.providers) ? snapshot.providers : [];
   const groups = Array.isArray(snapshot.groups) ? snapshot.groups : [];
+  const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
   const requests = Array.isArray(snapshot.requests) ? snapshot.requests : [];
   return `
     <div class="batch-snapshot">
@@ -2556,12 +2061,17 @@ function snapshotHtml(snapshot) {
           <div class="snapshot-chip"><div class="name">模板</div><div class="meta">${templates.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">Provider</div><div class="meta">${providers.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">对照配置</div><div class="meta">${groups.length} 个</div></div>
+          <div class="snapshot-chip"><div class="name">共享集合</div><div class="meta">${collections.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">冻结请求</div><div class="meta">${requests.length} 个渲染请求</div></div>
         </div>
       </div>
+      ${collections.length ? `<div class="snapshot-section">
+        <h3>本次共享集合</h3>
+        ${snapshotChips(collections, (c) => `<div class="snapshot-chip"><div class="name">${esc(c.name || c.id)}</div><div class="meta">${esc(c.id)} · ${esc(String((c.case_ids || []).length))} 个成员</div></div>`)}
+      </div>` : ''}
       <div class="snapshot-section">
         <h3>Case 与变量</h3>
-        ${snapshotChips(cases, (c) => `<div class="snapshot-chip"><div class="name">${esc(c.name || c.id)}</div><div class="meta">${esc(c.id)} · ${esc(String(Object.keys(c.variables || {}).length))} 个变量</div></div>`)}
+        ${snapshotChips(cases, (c) => `<div class="snapshot-chip"><div class="name">${esc(c.name || shortId(c.id))}</div><div class="meta">${esc(c.id)} · ${esc(String(Object.keys(c.variables || {}).length))} 个变量</div></div>`)}
         ${snapshotJsonDetails('查看完整 cases JSON', cases)}
       </div>
       <div class="snapshot-section">
@@ -2576,7 +2086,7 @@ function snapshotHtml(snapshot) {
       </div>
       <div class="snapshot-section">
         <h3>对照配置</h3>
-        ${snapshotChips(groups, (g) => `<div class="snapshot-chip"><div class="name">${esc(g.name || g.id)}${g.enabled === false ? '（已禁用）' : ''}</div><div class="meta">${esc(g.model || '—')} · ${esc(String(g.runs))} 次<br>${esc(pretty(g.parameters || {}))}</div></div>`)}
+        ${snapshotChips(groups, (g) => `<div class="snapshot-chip"><div class="name">${esc(g.name || g.id)}${g.enabled === false ? '（已禁用）' : ''}</div><div class="meta">${esc(g.model || '—')} · ${esc(String(g.runs))} 次<br>${esc(groupRouteSummary(g).join('<br>'))}</div></div>`)}
         ${snapshotJsonDetails('查看完整 groups JSON', groups)}
       </div>
       <div class="snapshot-section">
@@ -2591,6 +2101,7 @@ function snapshotHtml(snapshot) {
                 <span class="mono">${esc(r.group_name || r.group_id)}</span>
                 <span class="muted small">${esc(r.model)} · ${esc(String(r.runs))} 次</span>
                 <span class="muted small">${esc(r.protocol ? protocolLabel(r.protocol) : '协议未记录')}${r.requires_auth ? ' · 需要认证' : ' · 无认证'}</span>
+                ${r.language_resolution ? `<span class="muted small">${esc(r.language_resolution.source_language || '（未设置）')} → ${esc((r.language_resolution.targets || []).map((t) => t.key).join(', '))}${r.language_resolution.used_default ? ' · 默认' : ''}</span>` : ''}
                 <span class="muted small mono">${esc(r.prompt_hash ? r.prompt_hash.slice(0, 16) + '…' : '')}</span>
               </summary>
               <pre>${esc(pretty(r.request))}</pre>
@@ -2752,7 +2263,7 @@ async function replayRun(id) {
     App.currentRunId = batch.id;
     App.currentDetail = null;
     App.expandedResults.clear();
-    setView('workbench');
+    setView('workbench', { force: true });
     setOutputTab('results');
     await loadRunIntoOutput(batch.id);
     startPolling();
@@ -2774,7 +2285,7 @@ async function openRunInOutput(id) {
   App.expandedResults.clear();
   App.outputFilter = { group: '', case: '', status: '' };
   App.lastFilterSignature = '';
-  setView('workbench');
+  setView('workbench', { force: true });
   setOutputTab('results');
   await loadRunIntoOutput(id);
   if (App.currentDetail && batchActive(App.currentDetail.batch)) startPolling();
@@ -3100,9 +2611,6 @@ function updateProviderCredentialUI() {
   input.placeholder = placeholder;
   clearBtn.hidden = clearKey || (pending && pending.kind === 'clear') || !canClear;
   undoBtn.hidden = !(clearKey || pending);
-  if (undoBtn.hidden && clearBtn.hidden) {
-    // keep both unavailable
-  }
   updateProviderProtocolHint();
 }
 
@@ -3214,8 +2722,7 @@ function submitProviderDialog(event) {
   App.providerDialog.clearKey = false;
   $('provider-dialog').close();
   renderProviders();
-  renderRightConfig();
-  renderGroups();
+  renderGroupCards();
   renderModelSuggestions();
   updateDirtyUI();
   refreshRunPlan();
@@ -3248,11 +2755,9 @@ function deleteProvider(id) {
   } else if (pending && pending.kind === 'set') {
     App.credentialMutations.delete(id);
   }
-  // A pending clear for a persisted provider is intentionally kept for the same atomic save.
   delete App.credentials[id];
   renderProviders();
-  renderGroups();
-  renderRightConfig();
+  renderGroupCards();
   updateDirtyUI();
   refreshRunPlan();
   markPreviewStale('Provider 已删除');
@@ -3269,6 +2774,10 @@ function renderSettings() {
   $('setting-default-runs').value = s.default_runs;
   $('setting-concurrency').value = s.concurrency;
   $('setting-timeout').value = s.timeout_seconds;
+  const runConcurrency = $('run-concurrency');
+  const runDefaults = $('run-default-runs');
+  if (runConcurrency) runConcurrency.value = s.concurrency;
+  if (runDefaults) runDefaults.value = s.default_runs;
   const err = $('settings-error');
   if (err) err.textContent = '';
   App.settingsError = [];
@@ -3292,8 +2801,11 @@ function applySettingsChange() {
   $('setting-timeout').setAttribute('aria-invalid', errors.some((e) => e.includes('超时')) ? 'true' : 'false');
   if (!errors.length) {
     App.state.settings = next;
+    renderSettings();
     updateDirtyUI();
     refreshRunPlan();
+    markPreviewStale('设置已修改');
+    if (typeof scheduleSelectionPreview === 'function') scheduleSelectionPreview();
   }
 }
 
@@ -3309,26 +2821,45 @@ function renderModelSuggestions() {
 /* Views                                                               */
 /* ------------------------------------------------------------------ */
 
-function setView(view) {
-  if (!['workbench', 'history', 'providers', 'settings'].includes(view)) return;
+function setView(view, { force = false } = {}) {
+  if (!['workbench', 'cases', 'case-editor', 'case-io', 'group-editor', 'history', 'providers', 'settings'].includes(view)) return;
+  if (App.mutating && !force) return;
+  if (view === App.activeView) return;
+  if (!force && App.activeView === 'case-editor' && view !== 'case-editor' && typeof caseEditorDirty === 'function' && caseEditorDirty()) {
+    if (!window.confirm('Case 编辑器中还有未保存的更改。放弃并离开？')) return;
+    App.caseEditor = null;
+  }
+  if (!force && App.activeView === 'group-editor' && view !== 'group-editor' && typeof groupEditorDirty === 'function' && groupEditorDirty()) {
+    if (!window.confirm('对照配置编辑器中还有未保存的更改。放弃并离开？')) return;
+    App.groupEditor = null;
+  }
   App.activeView = view;
   document.querySelectorAll('.view').forEach((el) => {
     el.hidden = el.id !== `view-${view}`;
   });
+  const navView = view === 'case-editor' || view === 'case-io' ? 'cases' : (view === 'group-editor' ? 'workbench' : view);
   document.querySelectorAll('.nav-item').forEach((btn) => {
-    const active = btn.dataset.view === view;
+    const active = btn.dataset.view === navView;
     btn.classList.toggle('active', active);
     if (active) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   });
-  const caseSection = $('case-section');
-  if (caseSection) caseSection.hidden = false;
+  renderCollectionNav();
+  renderShell();
   if (view === 'workbench') {
-    renderCaseList();
+    renderTemplateOptions();
     renderTemplateEditor();
-    renderGroups();
-    renderRightConfig();
+    renderGroupCards();
+    renderWorkbenchCase();
     refreshRunPlan();
+  } else if (view === 'cases') {
+    renderLibrary();
+  } else if (view === 'case-editor') {
+    renderCaseEditor();
+  } else if (view === 'case-io') {
+    renderIO();
+  } else if (view === 'group-editor') {
+    renderGroupEditor();
   } else if (view === 'history') {
     renderHistoryList();
     if (!App.runsLoaded) refreshRuns();
@@ -3337,6 +2868,8 @@ function setView(view) {
   } else if (view === 'settings') {
     renderSettings();
   }
+  if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  if (view === 'workbench' && App.rangeDraft && typeof scheduleStagedPreview === 'function') scheduleStagedPreview(0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -3369,6 +2902,7 @@ async function bootstrap() {
     await refreshRuns({ quiet: true });
     await resumeActiveRun();
     refreshPreview({ silent: true });
+    refreshSelectionPreview({ silent: true });
     hideBanner();
   } catch (err) {
     setConnection(false);
@@ -3386,22 +2920,49 @@ function bindStaticEvents() {
     btn.addEventListener('click', () => setView(btn.dataset.view));
   });
 
-  $('new-case-btn').addEventListener('click', () => openCaseDialog('create'));
-  $('refresh-runs-btn').addEventListener('click', () => refreshRuns());
-  $('history-refresh-btn').addEventListener('click', async () => {
-    await refreshRuns();
-    if (App.historySelectedId) loadHistoryDetail(App.historySelectedId);
-    toast('历史已刷新', 'ok', 1600);
-  });
-
   $('save-btn').addEventListener('click', () => saveState());
-  $('global-save-btn').addEventListener('click', () => saveState());
   $('run-btn').addEventListener('click', startRun);
   $('draft-name').addEventListener('input', (e) => {
     App.state.draft.name = e.target.value;
     renderShell();
     updateDirtyUI();
     markPreviewStale('草稿名称已修改');
+  });
+  $('range-open-btn').addEventListener('click', () => {
+    App.rangeOpen = true;
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  });
+  $('range-close').addEventListener('click', () => {
+    App.rangeOpen = false;
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  });
+  $('range-reopen').addEventListener('click', () => {
+    App.rangeOpen = true;
+    if (typeof renderSelectionPanel === 'function') renderSelectionPanel();
+  });
+
+  ['run-concurrency', 'run-default-runs'].forEach((id) => {
+    $(id).addEventListener('change', () => {
+      const concurrency = Number($('run-concurrency').value);
+      const defaults = Number($('run-default-runs').value);
+      const next = {
+        ...App.state.settings,
+        concurrency: Number.isInteger(concurrency) ? concurrency : App.state.settings.concurrency,
+        default_runs: Number.isInteger(defaults) ? defaults : App.state.settings.default_runs
+      };
+      const errors = validateSettings(next);
+      if (errors.length) {
+        toast(errors[0], 'error');
+        renderSettings();
+        return;
+      }
+      App.state.settings = next;
+      renderSettings();
+      updateDirtyUI();
+      refreshRunPlan();
+      markPreviewStale('运行设置已修改');
+      if (typeof scheduleSelectionPreview === 'function') scheduleSelectionPreview();
+    });
   });
 
   $('template-select').addEventListener('change', (e) => {
@@ -3417,7 +2978,7 @@ function bindStaticEvents() {
     tpl.name = e.target.value;
     renderTemplateOptions();
     renderTemplateMismatch();
-    renderGroups();
+    renderGroupCards();
     updateDirtyUI();
     refreshRunPlan();
     markPreviewStale('模板名称已修改');
@@ -3435,7 +2996,6 @@ function bindStaticEvents() {
   $('message-content').addEventListener('input', handleMessageInput);
   ['input', 'click', 'keyup', 'select'].forEach((evt) => {
     $('message-content').addEventListener(evt, () => updateLineInfo($('message-content'), $('message-lineinfo')));
-    $('variables-json').addEventListener(evt, () => updateLineInfo($('variables-json'), $('var-lineinfo')));
   });
   $('message-content').addEventListener('keydown', (e) => {
     if (e.key === 'Tab' && !e.shiftKey) {
@@ -3459,21 +3019,6 @@ function bindStaticEvents() {
   $('add-message-btn').addEventListener('click', addMessage);
   $('del-message-btn').addEventListener('click', deleteMessage);
 
-  document.querySelectorAll('[data-editor-tab]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      App.editorTab = btn.dataset.editorTab;
-      setEditorTabUI();
-      if (App.editorTab === 'variables') syncVariablesEditor();
-      renderTemplateEditor();
-    });
-  });
-
-  $('variables-json').addEventListener('input', handleVariablesInput);
-  $('format-vars-btn').addEventListener('click', formatVariables);
-  $('variable-chips').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-var-add]');
-    if (btn) addVariableHelper(btn.dataset.varAdd);
-  });
   $('insert-var-menu').addEventListener('toggle', () => {
     if ($('insert-var-menu').open) renderInsertVarList();
   });
@@ -3484,64 +3029,27 @@ function bindStaticEvents() {
     $('insert-var-menu').open = false;
   });
 
-  $('case-list').addEventListener('change', (e) => {
-    const cb = e.target.closest('[data-case-select]');
-    if (cb) toggleCaseSelection(cb.dataset.caseSelect, cb.checked);
+  $('add-group-btn').addEventListener('click', () => {
+    if (typeof openGroupEditor === 'function') openGroupEditor(null);
   });
-  $('case-list').addEventListener('click', (e) => {
-    const activate = e.target.closest('[data-case-activate]');
-    if (activate) { setActiveCase(activate.dataset.caseActivate); return; }
-    const menu = e.target.closest('[data-case-menu]');
-    if (menu) openCaseDialog('edit', menu.dataset.caseMenu);
-  });
-
-  $('add-group-btn').addEventListener('click', () => openGroupDialog());
-  $('groups-body').addEventListener('change', (e) => {
+  $('group-cards').addEventListener('change', (e) => {
     const cb = e.target.closest('[data-group-enabled]');
     if (!cb) return;
     const g = groupById(cb.dataset.groupEnabled);
     if (!g) return;
     g.enabled = cb.checked;
-    renderGroups();
-    renderRightConfig();
+    renderGroupCards();
+    renderWorkbenchCase();
     updateDirtyUI();
     refreshRunPlan();
     markPreviewStale('配置启用状态已修改');
+    if (typeof scheduleSelectionPreview === 'function') scheduleSelectionPreview();
   });
-  $('groups-body').addEventListener('click', (e) => {
+  $('group-cards').addEventListener('click', (e) => {
     const edit = e.target.closest('[data-group-edit]');
-    if (edit) { setActiveGroup(edit.dataset.groupEdit); openGroupDialog(edit.dataset.groupEdit); return; }
-    const del = e.target.closest('[data-group-delete]');
-    if (del) { deleteGroup(del.dataset.groupDelete); return; }
-    const row = e.target.closest('tr[data-group-id]');
-    if (row && !e.target.closest('input,button')) setActiveGroup(row.dataset.groupId);
-  });
-
-  $('cfg-toggle').addEventListener('click', () => {
-    const body = $('cfg-body');
-    const expanded = $('cfg-toggle').getAttribute('aria-expanded') === 'true';
-    $('cfg-toggle').setAttribute('aria-expanded', expanded ? 'false' : 'true');
-    body.hidden = expanded;
-  });
-  $('cfg-group-select').addEventListener('change', (e) => {
-    if (e.target.value) setActiveGroup(e.target.value);
-  });
-  $('cfg-provider').addEventListener('change', (e) => {
-    const g = activeGroup();
-    if (!g) return;
-    g.provider_id = e.target.value;
-    renderRightProviderHint();
-    renderGroups();
-    updateDirtyUI();
-    refreshRunPlan();
-    markPreviewStale('Provider 已修改');
-  });
-  $('cfg-model').addEventListener('input', handleGroupModelInput);
-  $('cfg-temp-mode').addEventListener('change', handleRightTempModeChange);
-  $('cfg-temp-value').addEventListener('change', handleRightTempValueChange);
-  $('cfg-reasoning-mode').addEventListener('change', handleRightReasoningModeChange);
-  $('edit-group-btn').addEventListener('click', () => {
-    if (App.activeGroupId) openGroupDialog(App.activeGroupId);
+    if (edit) { setActiveGroup(edit.dataset.groupEdit); if (typeof openGroupEditor === 'function') openGroupEditor(edit.dataset.groupEdit); return; }
+    const select = e.target.closest('[data-group-select]');
+    if (select) setActiveGroup(select.dataset.groupSelect);
   });
 
   $('refresh-preview-btn').addEventListener('click', () => refreshPreview());
@@ -3572,13 +3080,11 @@ function bindStaticEvents() {
     btn.addEventListener('click', () => setOutputTab(btn.dataset.outputTab));
   });
 
-  $('recent-runs').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-run-open]');
-    if (!btn) return;
-    setView('history');
-    loadHistoryDetail(btn.dataset.runOpen);
+  $('history-refresh-btn').addEventListener('click', async () => {
+    await refreshRuns();
+    if (App.historySelectedId) loadHistoryDetail(App.historySelectedId);
+    toast('历史已刷新', 'ok', 1600);
   });
-
   $('history-run-list').addEventListener('click', (e) => {
     const open = e.target.closest('[data-history-open]');
     if (open) loadHistoryDetail(open.dataset.historyOpen);
@@ -3649,31 +3155,6 @@ function bindStaticEvents() {
     });
   });
 
-  $('case-form').addEventListener('submit', submitCaseDialog);
-  $('case-duplicate-btn').addEventListener('click', () => {
-    const id = App.caseDialog.id;
-    $('case-dialog').close();
-    if (id) openCaseDialog('duplicate', id);
-  });
-  $('case-delete-btn').addEventListener('click', deleteCaseFromDialog);
-
-  $('group-form').addEventListener('submit', submitGroupDialog);
-  $('group-temp-mode').addEventListener('change', () => handleGroupParamQuickChange('temp'));
-  $('group-temp-value').addEventListener('change', () => handleGroupParamQuickChange('temp'));
-  $('group-reasoning-mode').addEventListener('change', () => handleGroupParamQuickChange('reasoning'));
-  $('group-params').addEventListener('input', () => {
-    try {
-      App.groupDialog.params = parseGroupParamsText();
-      App.groupDialog.params = clone(App.groupDialog.params);
-      applyParamControls('group', App.groupDialog.params);
-      $('group-error').textContent = '';
-      $('group-params').removeAttribute('aria-invalid');
-    } catch (err) {
-      $('group-error').textContent = err.message;
-      $('group-params').setAttribute('aria-invalid', 'true');
-    }
-  });
-
   $('provider-form').addEventListener('submit', submitProviderDialog);
   $('provider-type').addEventListener('change', () => {
     updateProviderProtocolHint();
@@ -3681,25 +3162,27 @@ function bindStaticEvents() {
   });
   $('provider-env').addEventListener('input', () => updateProviderCredentialUI());
   $('provider-api-key').addEventListener('input', () => {
+    markEdit();
     if (App.providerDialog.clearKey && $('provider-api-key').value !== '') {
       App.providerDialog.clearKey = false;
       updateProviderCredentialUI();
     }
   });
   $('provider-clear-key').addEventListener('click', () => {
+    markEdit();
     App.providerDialog.clearKey = true;
     const key = $('provider-api-key');
     if (key) key.value = '';
     updateProviderCredentialUI();
   });
   $('provider-undo-credential').addEventListener('click', () => {
+    markEdit();
     if (App.providerDialog.clearKey) {
       App.providerDialog.clearKey = false;
     } else if (App.providerDialog.id) {
       discardCredentialMutation(App.providerDialog.id);
     }
     updateProviderCredentialUI();
-    renderRightProviderHint();
     refreshRunPlan();
   });
   $('provider-dialog').addEventListener('close', () => {
@@ -3730,8 +3213,13 @@ function bindStaticEvents() {
     if (details && details.open && !details.contains(e.target)) details.open = false;
   });
 
+  document.addEventListener('input', () => markEdit(), true);
+  document.addEventListener('change', () => markEdit(), true);
+
   window.addEventListener('beforeunload', (e) => {
-    if (hasUnsavedWork()) {
+    const editorDirty = (typeof caseEditorDirty === 'function' && caseEditorDirty())
+      || (typeof groupEditorDirty === 'function' && groupEditorDirty());
+    if (hasUnsavedWork() || editorDirty) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -3743,17 +3231,18 @@ function bindStaticEvents() {
       if (menu && menu.open) menu.open = false;
     }
   });
+
+  if (typeof bindCaseEvents === 'function') bindCaseEvents();
 }
 
 async function init() {
-  renderVariableChips();
   bindStaticEvents();
-  setView('workbench');
+  setView('workbench', { force: true });
   await bootstrap();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
+if (document.readyState === 'complete') {
   init();
+} else {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
 }

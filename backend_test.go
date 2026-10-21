@@ -79,13 +79,25 @@ func (h *harness) api(method, path string, body any, want int, out any) []byte {
 	return raw
 }
 func fixtureState(base string) State {
-	return State{Version: 1, Cases: []Case{{ID: "a", Name: "case A", Variables: map[string]any{"CurrentText": "alpha", "PriorText": "history", "ReplacementMap": "", "TargetLanguageNameMap": map[string]any{"sr": "Serbian", "en": "English"}}}, {ID: "b", Name: "case B", Variables: map[string]any{"CurrentText": "beta", "ReplacementMap": "replace", "TargetLanguageNameMap": map[string]any{"jp": "Japanese"}}}}, Templates: []Template{{ID: "t", Name: "Template", Messages: []Message{{Role: "system", Content: "Header\n{{- if .ReplacementMap }} REPLACE={{.ReplacementMap}}{{- end }}\n{{- range $k, $v := .TargetLanguageNameMap }}\n{{$k}}={{$v}}{{if eq $k \"sr\"}} CYRILLIC{{end}}{{- end }}"}, {Role: "user", Content: "{{.CurrentText}}"}}}}, Providers: []Provider{{ID: "p", Name: "Fixture", Protocol: openAIChatProtocol, BaseURL: base + "/v1"}}, Settings: Settings{DefaultRuns: 20, Concurrency: 20, TimeoutSeconds: 5}, Draft: Draft{Name: "test", CaseIDs: []string{"a", "b"}, Groups: []Group{{ID: "g1", Name: "Group 1", Enabled: true, TemplateID: "t", ProviderID: "p", Model: "requested-one", Parameters: map[string]any{"temperature": json.Number("0"), "reasoning_effort": "none", "seed": json.Number("9007199254740993")}, Runs: 2}, {ID: "g2", Name: "Group 2", Enabled: true, TemplateID: "t", ProviderID: "p", Model: "requested-two", Parameters: map[string]any{}, Runs: 2}}}}
+	s := State{Version: 1, Cases: []Case{{ID: "a", Variables: map[string]any{"CurrentText": "alpha", "PriorText": "history", "SourceLanguage": "zh", "ReplacementMap": ""}}, {ID: "b", Variables: map[string]any{"CurrentText": "beta", "SourceLanguage": "en", "ReplacementMap": "replace"}}}, Templates: []Template{{ID: "t", Name: "Template", Messages: []Message{{Role: "system", Content: "Header\n{{- if .ReplacementMap }} REPLACE={{.ReplacementMap}}{{- end }}\n{{- range $k, $v := .TargetLanguageNameMap }}\n{{$k}}={{$v}}{{if eq $k \"sr\"}} CYRILLIC{{end}}{{- end }}"}, {Role: "user", Content: "{{.CurrentText}}"}}}}, Providers: []Provider{{ID: "p", Name: "Fixture", Protocol: openAIChatProtocol, BaseURL: base + "/v1"}}, Settings: Settings{DefaultRuns: 20, Concurrency: 20, TimeoutSeconds: 5}, Draft: Draft{Name: "test", CaseIDs: []string{"a", "b"}, Groups: []Group{{ID: "g1", Name: "Group 1", Enabled: true, TemplateID: "t", ProviderID: "p", Model: "requested-one", Parameters: map[string]any{"temperature": json.Number("0"), "reasoning_effort": "none", "seed": json.Number("9007199254740993")}, Runs: 2}, {ID: "g2", Name: "Group 2", Enabled: true, TemplateID: "t", ProviderID: "p", Model: "requested-two", Parameters: map[string]any{}, Runs: 2}}}}
+	for i := range s.Draft.Groups {
+		s.Draft.Groups[i].LanguageRoutes = []LanguageRoute{{SourceLanguage: "zh", Targets: []Target{{Key: "en", Name: "English"}, {Key: "sr", Name: "Serbian"}}}, {SourceLanguage: "en", Targets: []Target{{Key: "jp", Name: "Japanese"}}}}
+	}
+	return s
 }
 func (h *harness) save(s State) State {
 	h.t.Helper()
 	var current State
 	h.api("GET", "/api/state", nil, 200, &current)
 	s.Version = current.Version
+	// Deterministic fixture installation is not a public state-resource mutation.
+	if mustJSON(h.t, s.Cases) != mustJSON(h.t, current.Cases) || mustJSON(h.t, s.Collections) != mustJSON(h.t, current.Collections) {
+		saved, err := h.store.saveState(s, nil)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		return saved
+	}
 	var saved State
 	h.api("PUT", "/api/state", s, 200, &saved)
 	return saved
@@ -431,9 +443,8 @@ func TestInputSecurityAndStaleVersionsPreventCalls(t *testing.T) {
 	bad := runInput(s, 1)
 	bad.CaseIDs = []string{"missing"}
 	h.api("POST", "/api/runs", bad, 400, nil)
-	bad = runInput(s, 1)
-	bad.CaseIDs = []string{"a", "a"}
-	h.api("POST", "/api/runs", bad, 400, nil)
+	// Repeated explicit selections now use union semantics, not duplicate calls.
+	h.api("POST", "/api/selection/preview", map[string]any{"state_version": s.Version, "case_ids": []string{"a", "a"}, "groups": s.Draft.Groups}, 200, nil)
 	bad = runInput(s, 1)
 	bad.Groups = append([]Group(nil), s.Draft.Groups...)
 	bad.Groups[0].Runs = 0

@@ -3,10 +3,34 @@ package main
 import "encoding/json"
 
 type Case struct {
+	ID        string         `json:"id"`
+	Variables map[string]any `json:"variables"`
+}
+
+// SnapshotCase keeps legacy metadata in immutable historical snapshots only.
+type SnapshotCase struct {
 	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
 	Variables   map[string]any `json:"variables"`
+}
+type Collection struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	CaseIDs []string `json:"case_ids"`
+}
+type Target struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+type LanguageRoute struct {
+	SourceLanguage string   `json:"source_language"`
+	Targets        []Target `json:"targets"`
+}
+type LanguageResolution struct {
+	SourceLanguage string   `json:"source_language"`
+	Targets        []Target `json:"targets"`
+	UsedDefault    bool     `json:"used_default"`
 }
 type Message struct {
 	Role    string `json:"role"`
@@ -26,14 +50,15 @@ type Provider struct {
 	CredentialRef string `json:"credential_ref"`
 }
 type Group struct {
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	Enabled    bool           `json:"enabled"`
-	TemplateID string         `json:"template_id"`
-	ProviderID string         `json:"provider_id"`
-	Model      string         `json:"model"`
-	Parameters map[string]any `json:"parameters"`
-	Runs       int            `json:"runs"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Enabled        bool            `json:"enabled"`
+	TemplateID     string          `json:"template_id"`
+	ProviderID     string          `json:"provider_id"`
+	Model          string          `json:"model"`
+	Parameters     map[string]any  `json:"parameters"`
+	Runs           int             `json:"runs"`
+	LanguageRoutes []LanguageRoute `json:"language_routes"`
 }
 type Settings struct {
 	DefaultRuns    int `json:"default_runs"`
@@ -41,51 +66,64 @@ type Settings struct {
 	TimeoutSeconds int `json:"timeout_seconds"`
 }
 type Draft struct {
-	Name    string   `json:"name"`
-	CaseIDs []string `json:"case_ids"`
-	Groups  []Group  `json:"groups"`
+	Name            string   `json:"name"`
+	CaseIDs         []string `json:"case_ids"`
+	CollectionIDs   []string `json:"collection_ids"`
+	ExcludedCaseIDs []string `json:"excluded_case_ids"`
+	Groups          []Group  `json:"groups"`
 }
 type State struct {
-	Version   int64      `json:"version"`
-	Cases     []Case     `json:"cases"`
-	Templates []Template `json:"templates"`
-	Providers []Provider `json:"providers"`
-	Settings  Settings   `json:"settings"`
-	Draft     Draft      `json:"draft"`
+	Version     int64        `json:"version"`
+	Cases       []Case       `json:"cases"`
+	Collections []Collection `json:"collections"`
+	Templates   []Template   `json:"templates"`
+	Providers   []Provider   `json:"providers"`
+	Settings    Settings     `json:"settings"`
+	Draft       Draft        `json:"draft"`
 }
 type RunInput struct {
-	StateVersion int64    `json:"state_version"`
-	Name         string   `json:"name"`
-	CaseIDs      []string `json:"case_ids"`
-	Groups       []Group  `json:"groups"`
-	Concurrency  int      `json:"concurrency"`
+	StateVersion    int64    `json:"state_version"`
+	Name            string   `json:"name"`
+	CaseIDs         []string `json:"case_ids"`
+	CollectionIDs   []string `json:"collection_ids"`
+	ExcludedCaseIDs []string `json:"excluded_case_ids"`
+	Groups          []Group  `json:"groups"`
+	Concurrency     int      `json:"concurrency"`
 }
 type FrozenRequest struct {
-	CaseID        string            `json:"case_id"`
-	CaseName      string            `json:"case_name"`
-	GroupID       string            `json:"group_id"`
-	GroupName     string            `json:"group_name"`
-	Model         string            `json:"model"`
-	Endpoint      string            `json:"endpoint"`
-	Method        string            `json:"method"`
-	Headers       map[string]string `json:"headers"`
-	APIKeyEnv     string            `json:"api_key_env"`
-	Protocol      string            `json:"protocol"`
-	CredentialRef string            `json:"credential_ref"`
-	RequiresAuth  bool              `json:"requires_auth"`
-	Request       json.RawMessage   `json:"request"`
-	RawRequest    string            `json:"raw_request"`
-	PromptHash    string            `json:"prompt_hash"`
-	Runs          int               `json:"runs"`
+	CaseID             string              `json:"case_id"`
+	CaseName           string              `json:"case_name,omitempty"`
+	GroupID            string              `json:"group_id"`
+	GroupName          string              `json:"group_name"`
+	Model              string              `json:"model"`
+	Endpoint           string              `json:"endpoint"`
+	Method             string              `json:"method"`
+	Headers            map[string]string   `json:"headers"`
+	APIKeyEnv          string              `json:"api_key_env"`
+	Protocol           string              `json:"protocol"`
+	CredentialRef      string              `json:"credential_ref"`
+	RequiresAuth       bool                `json:"requires_auth"`
+	Request            json.RawMessage     `json:"request"`
+	RawRequest         string              `json:"raw_request"`
+	PromptHash         string              `json:"prompt_hash"`
+	Runs               int                 `json:"runs"`
+	LanguageResolution *LanguageResolution `json:"language_resolution,omitempty"`
 }
 type Snapshot struct {
-	Cases          []Case          `json:"cases"`
+	Cases          []SnapshotCase  `json:"cases"`
 	Templates      []Template      `json:"templates"`
 	Providers      []Provider      `json:"providers"`
 	Groups         []Group         `json:"groups"`
 	CaseIDs        []string        `json:"case_ids"`
 	TimeoutSeconds int             `json:"timeout_seconds"`
 	Requests       []FrozenRequest `json:"requests"`
+	Selection      *Selection      `json:"selection,omitempty"`
+	Collections    []Collection    `json:"collections,omitempty"`
+}
+type Selection struct {
+	CaseIDs         []string `json:"case_ids"`
+	CollectionIDs   []string `json:"collection_ids"`
+	ExcludedCaseIDs []string `json:"excluded_case_ids"`
 }
 type Batch struct {
 	ID          string `json:"id"`
