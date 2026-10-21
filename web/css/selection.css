@@ -1,0 +1,67 @@
+/* ---------- Range panel ---------- */
+
+.range-panel .card-head { padding: 12px 18px; }
+.range-panel .card-title { font-size: 20px; }
+.range-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px 18px; }
+.range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-2);
+}
+.range-collections { display: flex; flex-direction: column; gap: 6px; }
+.range-collection-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f7faff;
+  font-size: 13px;
+}
+.range-collection-row input { width: 15px; height: 15px; accent-color: var(--accent); }
+.range-dedup { font-size: 12px; color: var(--accent); min-height: 16px; }
+.range-dedup.stale { color: var(--muted); }
+.range-explicit { display: flex; flex-direction: column; gap: 4px; }
+.range-subhead { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.range-total { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.range-total strong { font-size: 28px; line-height: 1.1; color: var(--text); }
+.range-total span { color: var(--text-2); font-size: 13px; }
+.range-preview { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.range-preview-row {
+  display: grid;
+  grid-template-columns: 64px 36px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  font-size: 11.5px;
+}
+.range-case-id { color: var(--text-2); }
+.range-source { color: var(--accent); }
+.range-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.tiny-icon { width: 22px; height: 22px; }
+.tiny-icon .icon { width: 14px; height: 14px; }
+.range-formula { margin-top: 6px; font-size: 12.5px; font-family: var(--mono-font); color: var(--text); }
+.range-body .btn.full { min-height: 38px; margin-top: 8px; }
+.range-collapsed .btn { min-height: 38px; }
+.exclusion-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.exclude-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.exclude-chip button { border: 0; background: none; color: var(--muted); padding: 0 1px; font-size: 13px; }
+.exclude-chip button:hover { color: var(--err); }

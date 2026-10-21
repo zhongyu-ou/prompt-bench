@@ -1,0 +1,9 @@
+/* ---------- Dialogs additions ---------- */
+
+.manage-collections-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+.manage-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #f0f4f8; }
+.manage-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.join-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; max-height: 360px; overflow-y: auto; }
+.join-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 38px; font-size: 13px; }
+.join-row.compact { min-height: 34px; }
+.join-row input { width: 15px; height: 15px; accent-color: var(--accent); }

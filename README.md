@@ -2,6 +2,15 @@
 
 A standalone local prompt workbench with Go `text/template` rendering, editable Cases/templates/Providers, explicit comparison configurations, concurrent repeated calls and durable SQLite history. Only **OpenAI Chat Completions** is supported; provider brand/model is separate from protocol. No Agent Evals account, platform database, scoring or quality judge is involved. Browser assets are embedded; no Node build is required.
 
+## Layout
+
+- `main.go` is a thin process entry: it calls `workbench.Run()` and only handles process failure reporting.
+- `internal/workbench/` owns the application: flags and lifecycle, HTTP API, domain/wire types, rendering and protocol adapters, execution engine, SQLite persistence and migrations, credentials, seed data, and the white-box tests. The root entrypoint depends only on `Run`, and `internal/` restricts the application's import to this module. Storage, scheduling, HTTP, protocol and model implementation stay together rather than being split into layered service/repository interfaces for hypothetical reuse; add a package when a real boundary (security, external system, independent lifecycle) requires one.
+- `web/` exports the embedded `Assets` (`index.html`, `js`, `css`), served directly by the workbench. The browser app boots from the native ES module `web/js/main.js`: shared `state.js`, `model.js` and `api.js`; `persistence.js` and `mutations.js` own saves and optimistic-version adoption; feature modules cover templates, the case library/editor/IO, groups, selection, runs, history, providers and settings, with supporting modules for navigation, views, preview/output, snapshots/run plans and feedback. Ordered stylesheets live in `web/css/` and are linked from `index.html`; preserve that order.
+- `cmd/fixture/` is the standalone local OpenAI-compatible fixture. `docs/` holds API contracts and scoped historical verification evidence; `database/` is private runtime state. The architecture refactor scope and verification status are recorded in [docs/tasks/architecture-refactor.md](docs/tasks/architecture-refactor.md).
+
+Existing commands remain the interface: `go run .`, `make run`, `make build`, `make test`, and `go test ./...`.
+
 ## Run
 
 Requires Go 1.25+ on macOS or Linux. SQLite uses the pinned pure-Go `modernc.org/sqlite v1.39.1` driver; no C compiler or external database service is required. Initial `go run` downloads Go modules.
