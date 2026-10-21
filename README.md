@@ -13,13 +13,13 @@ go run . --env-file "$HOME/.config/promptbench/keys.env" --listen 127.0.0.1:8787
 
 Open the exact printed URL, normally **http://127.0.0.1:8787**. `--env-file` is optional: use environment keys, a manually entered Provider override, or an explicitly anonymous fixture. Public binds are rejected; `localhost` normalizes to `127.0.0.1`, and literal IPv6 loopback is supported. A hostname different from the printed URL is deliberately rejected.
 
-With Make installed, use `make run` to start with the default settings, `make build` to build `./promptbench`, and `make test` to run all Go tests. `make` lists the available targets. Pass application flags with `ARGS`, for example:
+With Make installed, `make run` automatically loads `.env` from the project directory if present; without it, startup uses the existing process environment or saved Provider credentials. Existing process environment variables take priority, and changes to `.env` require a restart. Use `make build` to build `./promptbench`, and `make test` to run all Go tests. `make` lists the available targets. Pass application flags with `ARGS`; an explicit `--env-file` overrides the automatic `.env` selection:
 
 ```sh
 make run ARGS='--env-file /path/to/keys.env --listen 127.0.0.1:8787'
 ```
 
-Create your own private credentials file (do not copy another project's `.env`):
+Create your own private credentials file (do not copy another project's `.env`). For `make run`, use a project-local `.env` with variable names matching each Provider's `api_key_env` setting and restrict its permissions with `chmod 600 .env`. Alternatively, keep credentials outside the project and pass `--env-file`:
 
 ```sh
 mkdir -p "$HOME/.config/promptbench"
@@ -38,6 +38,8 @@ The env file accepts blank/comment lines, `NAME=value`, `export NAME=value`, sin
 Provider management lists the actual protocol catalog from `/api/protocols`; currently only `openai-chat-completions` is supported. Its base URL ends in `/v1` and it appends `/chat/completions`. Role/message rendering is generic; the adapter owns endpoint/method/nonsecret headers/body, runtime authentication and response decoding. Replay freezes protocol, endpoint, nonsecret headers and exact body, but resolves current credentials at the frozen immutable reference.
 
 Type a new key into the Provider password field to replace the manual override, then save. Passwords are write-only transient edits: GET/state/history/export never return a value or masked replacement. Nonsecret metadata reports actual manual/env/anonymous/missing/invalid availability, not just a configured env name. State and credential saves commit atomically with one optimistic version; stale tabs cannot mix old endpoint configuration with newly replaced keys.
+
+The Provider dialog's **Save Provider** submits changes to the backend immediately through the shared state save, including any other pending draft edits. Successful saves survive refresh; failed saves leave the dialog open with its input intact and show an error. Retrying a failed creation saves the same staged Provider rather than creating a duplicate.
 
 Manual keys are AES-256-GCM encrypted in SQLite using private generated `credentials.key` under the owner-only data directory. The keyfile is 32 bytes and must be backed up with the database. Missing/corrupt/mismatched master material with encrypted rows fails safely, never generates a replacement or pretends no override exists. This is local-at-rest protection for database-only copies, **not protection from the same OS user who can read both files**. Actual keys never enter editable state, frozen providers, raw requests, exports or logs; known upstream key echoes are redacted, including escaped JSON forms. Never paste keys into case variables/template/model parameters/URL: arbitrary user-authored data is persisted.
 

@@ -6,13 +6,13 @@ ARGS ?=
 
 help:
 	@printf '%s\n' \
-	  'make run                 Start the local workbench' \
+	  'make run                 Start the local workbench (loads .env if present)' \
 	  'make run ARGS="--help"   Show application flags' \
 	  'make build               Build ./promptbench' \
 	  'make test                Run all Go tests'
 
 run:
-	go run . $(ARGS)
+	go run . $(if $(wildcard .env),--env-file .env) $(ARGS)
 
 build:
 	go build -o promptbench .

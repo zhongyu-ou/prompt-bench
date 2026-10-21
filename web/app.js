@@ -2634,9 +2634,9 @@ function openProviderDialog(id = null) {
   window.setTimeout(() => $('provider-name').focus(), 0);
 }
 
-function submitProviderDialog(event) {
+async function submitProviderDialog(event) {
   event.preventDefault();
-  if (!App.state) return;
+  if (!App.state || App.saving || App.mutating) return;
   const name = $('provider-name').value.trim();
   const protocol = $('provider-type').value;
   const baseUrl = $('provider-base').value.trim();
@@ -2711,12 +2711,19 @@ function submitProviderDialog(event) {
   } else {
     target = { id: newProviderId(), name, protocol, base_url: baseUrl, api_key_env: env, credential_ref: '' };
     App.state.providers.push(target);
+    App.providerDialog.mode = 'edit';
+    App.providerDialog.id = target.id;
   }
 
   if (App.providerDialog.clearKey) {
     App.credentialMutations.set(target.id, { kind: 'clear' });
   } else if (keyInput.value !== '') {
     App.credentialMutations.set(target.id, { kind: 'set', value: keyInput.value });
+  }
+  updateDirtyUI();
+  if (!await saveState({ silent: true })) {
+    errEl.textContent = '保存失败，更改尚未提交。请检查页面错误提示后重试。';
+    return;
   }
   keyInput.value = '';
   App.providerDialog.clearKey = false;
@@ -2727,7 +2734,7 @@ function submitProviderDialog(event) {
   updateDirtyUI();
   refreshRunPlan();
   markPreviewStale('Provider 配置已修改');
-  if (pendingCredentialFor(target.id)) toast('Provider 已更新；手动凭据更改将在保存草稿时提交', 'ok');
+  toast('Provider 已保存', 'ok');
 }
 
 function deleteProvider(id) {
