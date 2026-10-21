@@ -83,11 +83,7 @@ func loopbackAddress(addr string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 func defaultDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "promptbench-data"
-	}
-	return filepath.Join(home, ".promptbench")
+	return "database"
 }
 func run() error {
 	addr := flag.String("listen", "127.0.0.1:8787", "loopback listen address (public bind forbidden)")

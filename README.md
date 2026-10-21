@@ -13,6 +13,12 @@ go run . --env-file "$HOME/.config/promptbench/keys.env" --listen 127.0.0.1:8787
 
 Open the exact printed URL, normally **http://127.0.0.1:8787**. `--env-file` is optional: use environment keys, a manually entered Provider override, or an explicitly anonymous fixture. Public binds are rejected; `localhost` normalizes to `127.0.0.1`, and literal IPv6 loopback is supported. A hostname different from the printed URL is deliberately rejected.
 
+With Make installed, use `make run` to start with the default settings, `make build` to build `./promptbench`, and `make test` to run all Go tests. `make` lists the available targets. Pass application flags with `ARGS`, for example:
+
+```sh
+make run ARGS='--env-file /path/to/keys.env --listen 127.0.0.1:8787'
+```
+
 Create your own private credentials file (do not copy another project's `.env`):
 
 ```sh
@@ -55,13 +61,13 @@ Initial state contains four example ASR input Cases and an embedded `seed.tmpl`;
 
 ## Persistence, backups and limits
 
-Default data directory: **`$HOME/.promptbench`**. SQLite file: `promptbench.sqlite`; owner-only directory/file permissions are enforced. `promptbench.lock` is an advisory process lock, released automatically when the process exits; its leftover filename is harmless. Use a dedicated directory, since Promptbench restricts its permissions.
+Default data directory: **`./database`**, relative to the working directory. SQLite file: `promptbench.sqlite`; owner-only directory/file permissions are enforced. `promptbench.lock` is an advisory process lock, released automatically when the process exits; its leftover filename is harmless. Use a dedicated directory, since Promptbench restricts its permissions. The local `database/` directory is excluded from Git.
 
 ```sh
 go run . --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-isolated
 # Or build a self-contained executable with the current web assets:
 go build -o promptbench .
-./promptbench --listen 127.0.0.1:8787 --data-dir "$HOME/.promptbench"
+./promptbench --listen 127.0.0.1:8787 --data-dir ./database
 ```
 
 Flags: `--listen` (default `127.0.0.1:8787`), `--data-dir` (default above), `--env-file` (default empty). `--help` prints usage. Stop the server, then copy **both `promptbench.sqlite` and `credentials.key`** for a consistent backup; restore matching files into a stopped server's private directory. Preserve the keyfile even if the database is moved. Per-batch Download JSON is a read-only history export, not state import or a credential backup. No automatic history deletion; watch disk use. Legacy env-only state/history migrates additively once, preserving user edits, original request bytes/hashes and results. A newer unsupported database schema is rejected, not downgraded.
