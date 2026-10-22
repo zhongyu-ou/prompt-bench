@@ -6,10 +6,10 @@ Promptbench is a single-user, loopback-only prompt workbench: edit Cases and Go 
 
 ## Architecture & Data Flow
 
-- One flat Go `package main`, an embedded vanilla-JavaScript SPA, and local SQLite (`modernc.org/sqlite`). No framework, ORM, frontend bundler, or external database.
-- Startup: `main.go` loads optional environment values, validates loopback binding, opens/locks storage, constructs `newEngine(store, getenv)` and `newAPI(store, engine, host)`, then serves HTTP.
+- Go application implementation lives in `internal/workbench`, with an embedded vanilla-JavaScript SPA and PostgreSQL (`pgx/v5` through `database/sql`). No framework, ORM or frontend bundler.
+- Startup: `workbench.Run()` parses launch flags, reads strict `server`/`database` YAML, loads optional Provider environment values, binds loopback, opens/locks PostgreSQL, constructs `newEngine(store, getenv)` and `newAPI(store, engine, host)`, then serves HTTP.
 - Execution: browser saves configuration → `/api/preview` or `/api/runs` → `renderRequest`/`freeze` → immutable request snapshot → engine workers → upstream HTTP → redacted persisted results. The browser polls run detail; replay uses the stored snapshot, not current configuration.
-- Current editable state is one versioned JSON document. SQLite also stores batches, results, encrypted credentials, and migration archives. Store locking and a single DB connection serialize writes; an exclusive data-directory lock prevents multiple processes sharing state.
+- Current editable state is one versioned JSON document. PostgreSQL stores it and batches, results, encrypted credentials and migration archives as BYTEA. A single physical session serializes transactions and holds a schema-scoped advisory lock. Session loss requires process restart; never silently reconnect or use transaction pooling.
 - Exactly one active batch; at most 20 requests in flight globally. No automatic retries or redirects. Stop cancels unissued attempts only; in-flight requests finish and persist. Restart marks unfinished work interrupted, not safe to resend automatically.
 - Cases are `{id, variables}` inputs. Collections reference Cases; groups choose template, Provider, model, parameters, repeats, and language routes. Selection unions Case IDs and collection membership, deduplicates, then excludes temporary omissions. See `GLOSSARY.md` before changing these concepts.
 
@@ -39,15 +39,17 @@ For isolated smoke work, use two terminals:
 
 ```sh
 go run ./cmd/fixture --listen 127.0.0.1:9797 --delay 150ms
-go run . --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-smoke
+go run . --config /path/to/private-smoke.yml --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-smoke
 ```
+
+The smoke YAML must name a separate empty PostgreSQL database, never the normal application database.
 
 Configure a Provider at `http://127.0.0.1:9797/v1` with no credential env name and select it in a group. Models `fixture-http-error` and `fixture-invalid-json` exercise failures; increase `--delay` to observe Stop/progress. Check the planned request count before using real Providers: initial groups default to 20 repeats per Case.
 
 ## Code Conventions & Common Patterns
 
 - Follow existing Go naming and `gofmt`; domain/wire types live in `model.go`. Keep protocol-specific behavior in `Protocol` adapters (`Validate`, `Prepare`, `Authorize`, `Decode`), not rendering or scheduling.
-- Reuse constructor seams: `openStore(path)`, `newEngine(store, getenv)`, and `newAPI(store, engine, host)`. Environment lookup is injected as `func(string) string`; avoid new global configuration machinery.
+- Reuse constructor seams: `openStore(databaseURL, dataDir)`, `newEngine(store, getenv)`, and `newAPI(store, engine, host)`. Environment lookup is injected as `func(string) string`; avoid new global configuration machinery. Application database settings come only from YAML, not environment overrides.
 - Preserve optimistic concurrency. Generic `PUT /api/state` uses `version` and only edits templates, Providers, settings, and draft. Dedicated resource mutations use `state_version` and `mutateState`; stale writes return 409. Cases/collections cannot be written through generic state PUT.
 - Preserve JSON fidelity: use existing `decode`/`decodeStored` (`UseNumber`) and raw `variables_json` paths. Omitted, `null`, zero, and literal strings are distinct. Case form edits send changed-field patches; do not round-trip imported numbers through JavaScript floats.
 - Preview, sent request, and persisted request bytes must agree. Preserve frozen history and raw-body/hash fidelity; migrations must not rewrite historical snapshot/result blobs. Import fingerprints canonicalize object-key order only; file IDs never update existing Cases.
@@ -62,7 +64,7 @@ Configure a Provider at `http://127.0.0.1:9797/v1` with no credential env name a
 | `main.go`, `server.go` | Flags, lifecycle, embedded assets, HTTP security/routing/JSON helpers |
 | `model.go`, `render.go` | Domain/wire types, validation, templates, previews, frozen run plans |
 | `engine.go`, `protocol.go` | Scheduling, HTTP execution, protocol boundary |
-| `store.go`, `migrate.go`, `credentials.go` | SQLite, locking/recovery, schema upgrades, encryption/redaction |
+| `store.go`, `migrate.go`, `credentials.go`, `config.go` | PostgreSQL, session locking/recovery, atomic schema initialization, encryption/redaction, strict YAML configuration |
 | `case_workflow.go`, `case_package.go` | Cases, collections, selection, lossless edits, JSON/JSONL import/export |
 | `seed.go`, `seed.tmpl` | First-run example configuration and prompt |
 | `Makefile`, `go.mod`, `.env.example` | Commands, Go/dependency versions, credential env examples |
@@ -70,15 +72,15 @@ Configure a Provider at `http://127.0.0.1:9797/v1` with no credential env name a
 
 ## Runtime/Tooling Preferences
 
-- `go.mod` requires Go 1.25.0 or newer; use Go modules. SQLite is pure Go, with no external DB or C compiler needed. Node is optional for JS syntax checks; there is no npm/Bun build or package manager workflow.
-- Defaults: `--listen 127.0.0.1:8787`, `--data-dir database`, no env file. `make run` conditionally passes `--env-file .env`; direct `go run .` does not load it automatically. Process environment wins over env-file values; restart after changing them.
+- `go.mod` requires Go 1.25.0 or newer; use Go modules and a reachable PostgreSQL service. Node is optional for JS syntax checks; there is no npm/Bun build or package manager workflow.
+- Defaults: `--config config/config.yml`, YAML server `127.0.0.1:8787`, `--data-dir database` (local credential key directory only), no env file. Copy the committed example to the Git-ignored actual YAML and keep it 0600. Explicit `--listen` overrides YAML. `make run` conditionally passes `--env-file .env`; direct `go run .` does not. Process environment wins over Provider env-file values; restart after YAML/env changes.
 - Manual Provider credentials override env credentials. Seeded env names are `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_4O_KEY`; consult `.env.example`, never real `.env` contents.
 - Assets are embedded at compilation: restart `go run .` or rebuild the executable after changing `web/`.
-- Never commit `.env`, SQLite files, `credentials.key`, locks, or built binaries. For backups, stop the app and preserve both `promptbench.sqlite` and its matching `credentials.key`. Do not reset real data to bypass migration errors or unsupported schema versions.
+- Never commit actual config, `.env`, retained SQLite sources, `credentials.key`, locks or built binaries. For backups, stop the app and preserve a PostgreSQL backup plus matching `credentials.key`. Runtime does not open SQLite; never reset real data to bypass schema errors.
 
 ## Testing & QA
 
-- Tests use standard `testing`, `httptest`, real temporary SQLite, and local HTTP Providers; no paid service required. Reuse `newHarness`, `fixtureState`, `h.api`, and `h.wait` in `backend_test.go`, with `t.TempDir()` and injected env lookup.
+- Tests use standard `testing`, `httptest`, real isolated PostgreSQL schemas and local HTTP Providers; no paid service required. Explicit `PROMPTBENCH_TEST_DATABASE_URL` must name a database ending in `_test`; missing settings fail, never skip or load real config. Reuse `newTestStoreTarget`, `newHarness`, `fixtureState`, `h.api` and `h.wait`; cleanup closes stores before dropping only that test's newly created schema.
 - Exercise public HTTP mutations rather than using `h.save` to bypass version checks. Use channel-controlled Providers for in-flight scheduling/credential tests, release blocked handlers in cleanup, and bound asynchronous waits.
 - Do not add `t.Parallel()` indiscriminately: protocol tests mutate the global adapter registry. Restore any modified globals.
 - Protect consumer-visible invariants: preview/sent/persisted byte equality, frozen replay, number fidelity, atomic failed writes, stale-version rejection, migration/history preservation, credential secrecy, concurrency cap, and Stop/recovery behavior.

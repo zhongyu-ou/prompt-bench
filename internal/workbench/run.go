@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -85,11 +84,31 @@ func loopbackAddress(addr string) (string, error) {
 
 // Run starts the loopback HTTP workbench and blocks until it shuts down.
 func Run() error {
-	addr := flag.String("listen", "127.0.0.1:8787", "loopback listen address (public bind forbidden)")
-	dir := flag.String("data-dir", "database", "private SQLite data directory")
-	envFile := flag.String("env-file", "", "optional NAME=value file; existing environment wins")
-	flag.Parse()
-	listen, err := loopbackAddress(*addr)
+	flags := flag.NewFlagSet("promptbench", flag.ContinueOnError)
+	configPath := flags.String("config", "config/config.yml", "service YAML configuration file")
+	addr := flags.String("listen", "", "override loopback listen address (public bind forbidden)")
+	dir := flags.String("data-dir", "database", "private credentials key directory")
+	envFile := flags.String("env-file", "", "optional NAME=value file; existing environment wins")
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	listenAddress := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "listen" {
+			listenAddress = *addr
+		}
+	})
+	listen, err := loopbackAddress(listenAddress)
 	if err != nil {
 		return err
 	}
@@ -101,7 +120,7 @@ func Run() error {
 		return err
 	}
 	defer ln.Close()
-	store, err := openStore(filepath.Join(*dir, "promptbench.sqlite"))
+	store, err := openStore(cfg.Database.connectionString(), *dir)
 	if err != nil {
 		return fmt.Errorf("open data: %w", err)
 	}
@@ -118,7 +137,7 @@ func Run() error {
 		defer cancel()
 		server.Shutdown(ctx)
 	}()
-	log.Printf("Promptbench http://%s (SQLite: %s)", ln.Addr(), filepath.Join(*dir, "promptbench.sqlite"))
+	log.Printf("Promptbench http://%s (PostgreSQL)", ln.Addr())
 	err = server.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

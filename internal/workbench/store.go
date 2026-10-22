@@ -2,16 +2,18 @@ package workbench
 
 import (
 	"bytes"
+	"context"
 	"crypto/cipher"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	_ "modernc.org/sqlite"
 	"os"
-	"path/filepath"
 	"sync"
-	"syscall"
+	"sync/atomic"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"time"
 )
 
@@ -20,7 +22,6 @@ var errNotFound = errors.New("not found")
 
 type Store struct {
 	db           *sql.DB
-	lock         *os.File
 	mu           sync.Mutex
 	secretsMu    sync.Mutex
 	aead         cipher.AEAD
@@ -28,91 +29,65 @@ type Store struct {
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
-func openStore(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	lock, err := os.OpenFile(filepath.Join(filepath.Dir(path), "promptbench.lock"), os.O_CREATE|os.O_RDWR, 0600)
+func openStore(databaseURL, dataDir string) (*Store, error) {
+	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid PostgreSQL connection configuration")
 	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
-		return nil, fmt.Errorf("data directory is already in use by another Promptbench process: %w", err)
+	if config.ConnectTimeout == 0 {
+		config.ConnectTimeout = 5 * time.Second
 	}
+	if _, ok := config.RuntimeParams["statement_timeout"]; !ok {
+		config.RuntimeParams["statement_timeout"] = "30000"
+	}
+	var connected atomic.Bool
+	db := stdlib.OpenDB(*config, stdlib.OptionBeforeConnect(func(context.Context, *pgx.ConnConfig) error {
+		if !connected.CompareAndSwap(false, true) {
+			return errors.New("database session lost; restart Promptbench")
+		}
+		return nil
+	}))
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	opened := false
 	defer func() {
 		if !opened {
-			syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-			lock.Close()
+			db.Close()
 		}
 	}()
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var schema string
+	var locked bool
+	if err = db.QueryRowContext(ctx, "SELECT current_schema(), pg_try_advisory_lock(1346522691, hashtext(current_schema()))").Scan(&schema, &locked); err != nil {
+		return nil, errors.New("could not acquire PostgreSQL database session")
 	}
-	f.Close()
-	if err = os.Chmod(path, 0600); err != nil {
-		return nil, err
+	if schema == "" {
+		return nil, errors.New("PostgreSQL current schema is empty")
 	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
+	if !locked {
+		return nil, errors.New("database is already in use by another Promptbench process")
 	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db, lock: lock}
-	_, err = db.Exec(`PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=5000;
- CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, data BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS batches (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, summary BLOB NOT NULL, snapshot BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS results (id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES batches(id), seq INTEGER NOT NULL, group_id TEXT NOT NULL, case_id TEXT NOT NULL, iteration INTEGER NOT NULL, data BLOB NOT NULL, UNIQUE(batch_id,group_id,case_id,iteration));
- CREATE TABLE IF NOT EXISTS credentials (ref TEXT PRIMARY KEY, ciphertext BLOB NOT NULL);
- CREATE INDEX IF NOT EXISTS results_batch ON results(batch_id,seq);`)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	var n int
-	err = db.QueryRow("SELECT count(*) FROM state").Scan(&n)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	if n == 0 {
-		state, err := seedState()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		b, _ := json.Marshal(state)
-		_, err = db.Exec("INSERT INTO state VALUES (1,?,?)", state.Version, b)
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	if err = s.initCredentials(filepath.Dir(path)); err != nil {
-		db.Close()
-		return nil, err
-	}
+	s := &Store{db: db}
 	if err = s.migrate(); err != nil {
-		db.Close()
+		return nil, err
+	}
+	if err = os.MkdirAll(dataDir, 0700); err != nil {
+		return nil, err
+	}
+	if err = os.Chmod(dataDir, 0700); err != nil {
+		return nil, err
+	}
+	if err = s.initCredentials(dataDir); err != nil {
 		return nil, err
 	}
 	if err = s.interrupt(); err != nil {
-		db.Close()
 		return nil, err
 	}
 	opened = true
 	return s, nil
 }
-func (s *Store) close() {
-	s.db.Close()
-	syscall.Flock(int(s.lock.Fd()), syscall.LOCK_UN)
-	s.lock.Close()
-}
+func (s *Store) close() { s.db.Close() }
 func decodeStored(b []byte, v any) error {
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.UseNumber()
@@ -204,18 +179,18 @@ func (s *Store) saveStateLocked(st State, updates map[string]CredentialUpdate) (
 		return st, err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec("UPDATE state SET version=?,data=? WHERE id=1", st.Version, b); err != nil {
+	if _, err = tx.Exec("UPDATE state SET version=$1,data=$2 WHERE id=1", st.Version, b); err != nil {
 		return st, err
 	}
 	for id, update := range updates {
 		ref := providers[id].CredentialRef
 		if update.Action == "clear" {
-			_, err = tx.Exec("DELETE FROM credentials WHERE ref=?", ref)
+			_, err = tx.Exec("DELETE FROM credentials WHERE ref=$1", ref)
 		} else {
 			var encrypted []byte
 			encrypted, err = s.encryptCredential(ref, update.Key)
 			if err == nil {
-				_, err = tx.Exec("INSERT INTO credentials(ref,ciphertext) VALUES(?,?) ON CONFLICT(ref) DO UPDATE SET ciphertext=excluded.ciphertext", ref, encrypted)
+				_, err = tx.Exec("INSERT INTO credentials(ref,ciphertext) VALUES($1,$2) ON CONFLICT(ref) DO UPDATE SET ciphertext=excluded.ciphertext", ref, encrypted)
 			}
 		}
 		if err != nil {
@@ -240,10 +215,10 @@ func (s *Store) create(d Detail) error {
 	defer tx.Rollback()
 	b, _ := json.Marshal(d.Batch)
 	snap, _ := json.Marshal(d.Snapshot)
-	if _, err = tx.Exec("INSERT INTO batches VALUES (?,?,?,?)", d.Batch.ID, d.Batch.CreatedAt, b, snap); err != nil {
+	if _, err = tx.Exec("INSERT INTO batches(id,created_at,summary,snapshot) VALUES ($1,$2,$3,$4)", d.Batch.ID, d.Batch.CreatedAt, b, snap); err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare("INSERT INTO results VALUES (?,?,?,?,?,?,?)")
+	stmt, err := tx.Prepare("INSERT INTO results(id,batch_id,seq,group_id,case_id,iteration,data) VALUES ($1,$2,$3,$4,$5,$6,$7)")
 	if err != nil {
 		return err
 	}
@@ -263,12 +238,12 @@ func (s *Store) update(batch Batch, results ...Result) error {
 	}
 	defer tx.Rollback()
 	b, _ := json.Marshal(batch)
-	if _, err = tx.Exec("UPDATE batches SET summary=? WHERE id=?", b, batch.ID); err != nil {
+	if _, err = tx.Exec("UPDATE batches SET summary=$1 WHERE id=$2", b, batch.ID); err != nil {
 		return err
 	}
 	for _, r := range results {
 		b, _ = json.Marshal(r)
-		if _, err = tx.Exec("UPDATE results SET data=? WHERE id=?", b, r.ID); err != nil {
+		if _, err = tx.Exec("UPDATE results SET data=$1 WHERE id=$2", b, r.ID); err != nil {
 			return err
 		}
 	}
@@ -297,7 +272,7 @@ func (s *Store) list() ([]Batch, error) {
 func (s *Store) detail(id string) (Detail, error) {
 	var d Detail
 	var b, snap []byte
-	err := s.db.QueryRow("SELECT summary,snapshot FROM batches WHERE id=?", id).Scan(&b, &snap)
+	err := s.db.QueryRow("SELECT summary,snapshot FROM batches WHERE id=$1", id).Scan(&b, &snap)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, errNotFound
 	}
@@ -310,7 +285,7 @@ func (s *Store) detail(id string) (Detail, error) {
 	if err = decodeStored(snap, &d.Snapshot); err != nil {
 		return d, err
 	}
-	rows, err := s.db.Query("SELECT data FROM results WHERE batch_id=? ORDER BY seq", id)
+	rows, err := s.db.Query("SELECT data FROM results WHERE batch_id=$1 ORDER BY seq", id)
 	if err != nil {
 		return d, err
 	}

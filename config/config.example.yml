@@ -1,0 +1,10 @@
+server:
+  host: "127.0.0.1"
+  port: 8787
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: ""
+  name: "promptbench"
+  sslmode: "disable"

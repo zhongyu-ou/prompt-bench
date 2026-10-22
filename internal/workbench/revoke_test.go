@@ -39,7 +39,7 @@ func TestAtomicClearAndDeleteRequiresFrozenAuth(t *testing.T) {
 				t.Fatal("profile not deleted")
 			}
 			var n int
-			if err := h.store.db.QueryRow("SELECT count(*) FROM credentials WHERE ref=?", s.Providers[0].CredentialRef).Scan(&n); err != nil || n != 0 {
+			if err := h.store.db.QueryRow("SELECT count(*) FROM credentials WHERE ref=$1", s.Providers[0].CredentialRef).Scan(&n); err != nil || n != 0 {
 				t.Fatal("deleted profile secret not revoked", err)
 			}
 			if withEnv {

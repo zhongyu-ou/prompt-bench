@@ -2,13 +2,11 @@ package workbench
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -106,33 +104,11 @@ func TestManualCredentialLifecycleAndIndependentProfiles(t *testing.T) {
 		}
 	}
 	var encrypted []byte
-	if err := h.store.db.QueryRow("SELECT ciphertext FROM credentials WHERE ref=?", s.Providers[0].CredentialRef).Scan(&encrypted); err != nil {
+	if err := h.store.db.QueryRow("SELECT ciphertext FROM credentials WHERE ref=$1", s.Providers[0].CredentialRef).Scan(&encrypted); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(encrypted, []byte("manual-replaced")) {
 		t.Fatal("unencrypted credential")
-	}
-	var dbPath string
-	rows, err := h.store.db.Query("PRAGMA database_list")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var seq int
-		var name string
-		if err = rows.Scan(&seq, &name, &dbPath); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rows.Close()
-	rawDB, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, secret := range []string{"manual-first", "manual-second", "manual-replaced"} {
-		if bytes.Contains(rawDB, []byte(secret)) {
-			t.Fatal("plaintext manual key in SQLite")
-		}
 	}
 	// Clearing the final override with no env fails, including authenticated history after source deletion.
 	v = h.credentials(s, map[string]CredentialUpdate{"p": {Action: "clear"}}, 200)
@@ -278,11 +254,8 @@ func TestInFlightKeepsResolvedManualKeyAndRedactsNewKeys(t *testing.T) {
 }
 
 func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data", "promptbench.sqlite")
-	s, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	target := newTestStoreTarget(t)
+	s := target.open(t)
 	st, err := s.state()
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +266,7 @@ func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
 	}
 	ref := st.Providers[0].CredentialRef
 	s.close()
-	s, err = openStore(path)
+	s, err = openStore(target.DSN, target.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +275,7 @@ func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
 		t.Fatal("restart failed", status, err)
 	}
 	s.close()
-	keyPath := filepath.Join(filepath.Dir(path), "credentials.key")
+	keyPath := filepath.Join(target.DataDir, "credentials.key")
 	master, err := os.ReadFile(keyPath)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +283,7 @@ func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
 	if err = os.Remove(keyPath); err != nil {
 		t.Fatal(err)
 	}
-	if failed, err := openStore(path); err == nil {
+	if failed, err := openStore(target.DSN, target.DataDir); err == nil {
 		failed.close()
 		t.Fatal("missing master silently replaced")
 	}
@@ -320,14 +293,14 @@ func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
 	if err = os.WriteFile(keyPath, bytes.Repeat([]byte{1}, 32), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if failed, err := openStore(path); err == nil {
+	if failed, err := openStore(target.DSN, target.DataDir); err == nil {
 		failed.close()
 		t.Fatal("wrong master accepted")
 	}
 	if err = os.WriteFile(keyPath, master, 0600); err != nil {
 		t.Fatal(err)
 	}
-	s, err = openStore(path)
+	s, err = openStore(target.DSN, target.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,96 +308,6 @@ func TestEncryptedCredentialRestartAndMissingMasterFailSafe(t *testing.T) {
 	restored, _ := s.state()
 	if restored.Version != st.Version {
 		t.Fatal("failed key recovery changed data")
-	}
-}
-
-func TestLegacyMigrationPreservesUserHistoryBytesAndReplay(t *testing.T) {
-	calls := make(chan string, 2)
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		calls <- string(raw)
-		if r.URL.Path != "/frozen-legacy" || r.Header.Get("Authorization") != "Bearer legacy-env-key" || r.Header.Get("Content-Type") != "application/json" {
-			t.Error("legacy wire metadata drift")
-		}
-		success(w)
-	}))
-	defer provider.Close()
-	path := filepath.Join(t.TempDir(), "old.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE state(id INTEGER PRIMARY KEY,version INTEGER,data BLOB); CREATE TABLE batches(id TEXT PRIMARY KEY,created_at TEXT,summary BLOB,snapshot BLOB); CREATE TABLE results(id TEXT PRIMARY KEY,batch_id TEXT,seq INTEGER,group_id TEXT,case_id TEXT,iteration INTEGER,data BLOB,UNIQUE(batch_id,group_id,case_id,iteration));`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := oneCase(fixtureState(provider.URL))
-	old.Version = 7
-	old.Cases[0].Variables["UserEdit"] = "USER EDIT preserved"
-	stateMap := map[string]any{}
-	json.Unmarshal([]byte(mustJSON(t, old)), &stateMap)
-	for _, p := range stateMap["providers"].([]any) {
-		delete(p.(map[string]any), "protocol")
-		delete(p.(map[string]any), "credential_ref")
-	}
-	stateRaw := mustJSON(t, stateMap)
-	rawRequest := "{\n \"messages\":[{\"role\":\"user\",\"content\":\"original\"}],\"model\":\"legacy-model\"\n}"
-	hash := sha256.Sum256([]byte(rawRequest))
-	hashText := hex.EncodeToString(hash[:])
-	legacySnapshot := map[string]any{"cases": old.Cases, "templates": old.Templates, "providers": stateMap["providers"], "groups": old.Draft.Groups, "case_ids": old.Draft.CaseIDs, "timeout_seconds": 5, "requests": []any{map[string]any{"case_id": "a", "case_name": "original case", "group_id": "g1", "group_name": "original group", "model": "legacy-model", "endpoint": provider.URL + "/frozen-legacy", "api_key_env": "LEGACY_KEY", "request": json.RawMessage(rawRequest), "prompt_hash": hashText, "runs": 1}}}
-	summary := Batch{ID: "history", Name: "USER HISTORY", Status: "completed", CreatedAt: now(), FinishedAt: now(), Total: 1, Completed: 1, Concurrency: 1}
-	result := Result{ID: "original-result", CaseID: "a", GroupID: "g1", Iteration: 1, Status: "completed", RawRequest: rawRequest, Request: json.RawMessage(rawRequest), RawResponse: "original response", PromptHash: hashText}
-	resultBytes := mustJSON(t, result)
-	if _, err = db.Exec("INSERT INTO state VALUES(1,7,?)", stateRaw); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec("INSERT INTO batches VALUES(?,?,?,?)", summary.ID, summary.CreatedAt, mustJSON(t, summary), mustJSON(t, legacySnapshot)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec("INSERT INTO results VALUES(?,?,?,?,?,?,?)", result.ID, summary.ID, 0, "g1", "a", 1, resultBytes); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	s, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.close()
-	migrated, err := s.state()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if migrated.Version != 8 || migrated.Cases[0].Variables["UserEdit"] != "USER EDIT preserved" || migrated.Providers[0].Protocol != openAIChatProtocol {
-		t.Fatal("state migration lost edits")
-	}
-	var actual string
-	if err = s.db.QueryRow("SELECT data FROM results WHERE id=?", result.ID).Scan(&actual); err != nil {
-		t.Fatal(err)
-	}
-	if actual != resultBytes {
-		t.Fatal("migration rewrote result record")
-	}
-	d, err := s.detail("history")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := d.Snapshot.Requests[0]
-	if f.RawRequest != rawRequest || f.PromptHash != hashText || !f.RequiresAuth || f.CredentialRef != "legacy:p" || f.Protocol != openAIChatProtocol {
-		t.Fatal("legacy snapshot changed bytes or auth", f)
-	}
-	e := newEngine(s, func(string) string { return "legacy-env-key" })
-	defer e.close()
-	b, err := e.start("replay", d.Snapshot, 1, d.Batch.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.wg.Wait()
-	if <-calls != rawRequest {
-		t.Fatal("legacy replay changed actual body whitespace")
-	}
-	replayed, err := s.detail(b.ID)
-	if err != nil || replayed.Batch.Completed != 1 || len(replayed.Results) != 1 {
-		t.Fatal("migration replay failed", err)
 	}
 }
 
@@ -484,39 +367,38 @@ func TestProtocolBoundaryFrozenHeadersAndNonBearerAuth(t *testing.T) {
 }
 
 func TestFutureDatabaseVersionRejectedWithoutDroppingState(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "future.sqlite")
-	s, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	target := newTestStoreTarget(t)
+	s := target.open(t)
+	var err error
 	var before string
 	if err = s.db.QueryRow("SELECT data FROM state WHERE id=1").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("PRAGMA user_version=4"); err != nil {
+	if _, err = s.db.Exec("UPDATE schema_version SET version=2 WHERE id=1"); err != nil {
 		t.Fatal(err)
 	}
 	s.close()
-	if old, err := openStore(path); err == nil {
+	if old, err := openStore(target.DSN, target.DataDir); err == nil {
 		old.close()
 		t.Fatal("future database accepted")
 	} else if !strings.Contains(err.Error(), "newer") {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", path)
+	config, err := pgx.ParseConfig(target.DSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	check := stdlib.OpenDB(*config)
+	defer check.Close()
 	var after string
 	var version int
-	if err = db.QueryRow("SELECT data FROM state WHERE id=1").Scan(&after); err != nil {
+	if err = check.QueryRow("SELECT data FROM state WHERE id=1").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	if err = check.QueryRow("SELECT version FROM schema_version WHERE id=1").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if after != before || version != 4 {
+	if after != before || version != 2 {
 		t.Fatal("future state downgraded or reset")
 	}
 }
