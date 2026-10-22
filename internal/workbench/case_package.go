@@ -23,6 +23,7 @@ type casePackage struct {
 type casePackageImportInput struct {
 	StateVersion  int64    `json:"state_version"`
 	Format        string   `json:"format"`
+	InputFormat   string   `json:"input_format,omitempty"`
 	Content       string   `json:"content"`
 	CollectionIDs []string `json:"collection_ids,omitempty"`
 }
@@ -163,6 +164,73 @@ func parsePackageCollection(data []byte, jsonl bool) (Collection, error) {
 		seen[id] = true
 	}
 	return c, nil
+}
+
+func parseCaseImport(inputFormat, format, content string) (casePackage, error) {
+	if inputFormat == "" || inputFormat == "package" {
+		return parseCasePackage(format, content)
+	}
+	p := casePackage{Format: casePackageFormat, Version: 1, Cases: []Case{}, Collections: []Collection{}}
+	if inputFormat != "eve-vocat" {
+		return p, errors.New("input_format must be eve-vocat or package")
+	}
+	appendRow := func(raw []byte, location string) error {
+		var variables map[string]any
+		if err := packageJSON(raw, &variables); err != nil || variables == nil {
+			return fmt.Errorf("%s must be a JSON object of variables", location)
+		}
+		if _, found := variables["TargetLanguageNameMap"]; found {
+			return fmt.Errorf("%s: TargetLanguageNameMap is execution-owned; remove it and configure group language_routes instead", location)
+		}
+		for _, key := range []string{"CurrentText", "SourceLanguage"} {
+			value, ok := variables[key].(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return fmt.Errorf("%s: %s is required and must be a nonempty string", location, key)
+			}
+		}
+		for _, key := range []string{"PriorText", "ReplacementMap"} {
+			if _, found := variables[key]; !found {
+				variables[key] = ""
+			}
+		}
+		p.Cases = append(p.Cases, Case{ID: fmt.Sprintf("row-%d", len(p.Cases)+1), Variables: variables})
+		return nil
+	}
+	switch format {
+	case "json":
+		data := bytes.TrimSpace([]byte(content))
+		if len(data) > 0 && data[0] == '[' {
+			var rows []json.RawMessage
+			if err := packageJSON(data, &rows); err != nil {
+				return p, fmt.Errorf("invalid eve-vocat JSON array: %w", err)
+			}
+			for i, row := range rows {
+				if err := appendRow(row, fmt.Sprintf("row %d", i+1)); err != nil {
+					return p, err
+				}
+			}
+		} else if err := appendRow(data, "input"); err != nil {
+			return p, err
+		}
+	case "jsonl":
+		for i, line := range strings.Split(content, "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if err := appendRow([]byte(line), fmt.Sprintf("JSONL line %d", i+1)); err != nil {
+				return p, err
+			}
+		}
+	default:
+		return p, errors.New("format must be json or jsonl")
+	}
+	if len(p.Cases) == 0 {
+		return p, errors.New("eve-vocat input must contain at least one variables object")
+	}
+	if err := validateCasePackage(p); err != nil {
+		return p, err
+	}
+	return p, nil
 }
 
 func parseCasePackage(format, content string) (casePackage, error) {
@@ -539,7 +607,7 @@ func (a *API) packageAPI(w http.ResponseWriter, r *http.Request) bool {
 				fail(w, http.StatusConflict, errStale)
 				return true
 			}
-			p, err := parseCasePackage(in.Format, in.Content)
+			p, err := parseCaseImport(in.InputFormat, in.Format, in.Content)
 			if err != nil {
 				fail(w, http.StatusBadRequest, err)
 				return true
@@ -554,7 +622,7 @@ func (a *API) packageAPI(w http.ResponseWriter, r *http.Request) bool {
 		}
 		var plan casePackageImportPlan
 		st, err := a.store.mutateState(in.StateVersion, func(st *State) error {
-			p, err := parseCasePackage(in.Format, in.Content)
+			p, err := parseCaseImport(in.InputFormat, in.Format, in.Content)
 			if err != nil {
 				return err
 			}

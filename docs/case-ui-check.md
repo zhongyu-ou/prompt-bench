@@ -1,5 +1,31 @@
 # Case workflow frontend check
 
+## Variable import UX — 2026-10-22
+
+Required-field update: Eve / Vocat now requires nonblank string CurrentText and SourceLanguage, with no language autodetection. The visible example includes all four service fields. A subsequent isolated Chromium run rejected missing SourceLanguage and whitespace-only CurrentText in-place, then imported a valid two-field object and confirmed stored PriorText and ReplacementMap were both empty strings. Full `go test ./...` and the import module syntax check passed after the update; regression coverage includes JSON/JSONL required-field rejection, absent-versus-explicit empty defaults deduplication, and atomic rejection of mixed valid/invalid batches. Earlier single-field examples below describe the pre-update check, not the current contract.
+
+Five-column preview update: real Chromium against a new isolated PostgreSQL database verified No / SourceLanguage / CurrentText / PriorText / ReplacementMap in order, row 1 with zh-CN, full CurrentText, multiline PriorText, and an empty ReplacementMap cell. Desktop screenshot confirmed the rendered table; at 390px the table scrolled within its 364px wrapper while body width stayed 390px. `node --check web/js/case-io.js` passed. No model requests or normal user data were involved. This replaces earlier preview-column descriptions below.
+
+Write-column/alignment update: preview now ends with 写入, using the original status mapping (`existing` → 已存在, otherwise 新增). All headers are centered; body cells are centered except CurrentText and PriorText, which stay left-aligned. A controlled-data Chromium rendering smoke exercised the actual renderIO module and stylesheet with both statuses and multiline text; computed alignment matched all six columns. This rendering-only check did not repeat database import verification.
+
+Header sizing fix: removed percentage widths from CurrentText/PriorText, reserved 160px for ReplacementMap and 80px for 写入, and set the table minimum width to 880px. Chromium rendering smoke at viewport widths 1568, 1440, 1024 and 390 measured every header text range inside its own cell, with body width equal to the viewport. A right-scrolled mobile screenshot showed ReplacementMap and 写入 separated without overlap.
+
+Verified the rebuilt application with real Chromium against a new isolated PostgreSQL database, never the normal application database. No model requests were sent.
+
+| Scenario | Observed result |
+| --- | --- |
+| Initial guidance | At 1440×1100, 数据格式 defaulted to Eve / Vocat 变量; the paste area was visible, with a raw CurrentText object placeholder and object/array/JSONL guidance. Preview used record numbers rather than user-supplied IDs. |
+| Single variables object | Pasted a raw object without header/ID, previewed one new record, confirmed, and observed a new random 32-character hex Case ID. Stored variables_json retained `12345678901234567890` and `1.50` exactly. |
+| JSONL / JSON array | Pasted two raw objects on separate lines, then a two-object array; each previewed and committed two new Cases. |
+| Raw file upload | Uploaded a two-record raw `.jsonl` file under the default data format; preview and confirmation added both records. |
+| Reuse and package mode | Post-import previews showed reused Cases. Switching to Promptbench 标准包 and importing an existing input with a file ID previewed reuse and committed zero new Cases. |
+| Invalid batch / stale text | Typing after preview immediately disabled confirmation. An array containing one valid object and null produced a visible row-2 error and disabled confirmation; the valid partial record was not written. |
+| Responsive / browser errors | At 390×844, body width was 390px with no page-level horizontal overflow; selector, paste, preview and confirmation remained usable. Browser error collection was empty. |
+
+Backend verification: `PROMPTBENCH_TEST_DATABASE_URL=<isolated _test database> go test ./...` passed, including raw-import numeric fidelity, invalid inputs, API atomicity/deduplication/stale-version regression coverage and existing package tests. `node --check` passed for `web/js/case-io.js` and `web/js/state.js`.
+
+This check covers importing inputs, not compatibility with a real Eve/Vocat service or model quality. The sections below are earlier workflow evidence.
+
 ## Scope
 
 Real Chromium exercised the Case library/editor, collections, import/export, routing and range selection against an isolated built Go app and local HTTP fixture, at1536×1024 and390×844. No paid model call was made. Final user-service acceptance used only GET/render/preview: no save, import, delete, run/replay or restart. Core execution/Provider credential evidence is in [ui-check.md](ui-check.md); migration and regression evidence is in [case-backend-check.md](case-backend-check.md), with the contract in [api.md](api.md).

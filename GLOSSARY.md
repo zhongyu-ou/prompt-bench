@@ -26,6 +26,10 @@
 
 ## Import Reuse（导入复用）
 
+导入界面的“数据格式”指输入内容的业务结构，不是 JSON / JSONL 文件编码。Eve / Vocat 变量格式直接使用 Case 变量对象，无需包头或 ID；多个对象可用 JSON 数组或逐行对象表达。Promptbench 标准包用于携带 Case 与集合引用。两者都由系统为新 Case 生成随机 ID；变量格式中的行号只用于预览定位，不是 Case 标识。
+
+Eve / Vocat 格式要求 CurrentText 和 SourceLanguage 为非空白字符串；不自动识别源语言。缺少 PriorText、ReplacementMap 时，在预览、去重和写入前补为空字符串；显式提供的值保留。标准包不套用服务专属必填规则或默认值，避免改写备份输入。
+
 导入的去重键是完整 Case 输入内容的指纹，不是 Case ID：包括 CurrentText、PriorText、SourceLanguage、ReplacementMap 和全部其他输入变量，不包括 ID、元数据时间戳或执行配置 TargetLanguageNameMap。仅规范化 JSON 对象键顺序；文本空白、标点、数组顺序与值类型保持原样。
 
 导入只新增或复用，不更新已有 Case。完整输入相同则复用本地 Case，并幂等补充缺失的集合引用；输入不同则生成新随机 ID，即使文件 ID 与已有 ID 相同。文件 ID 到本地 ID 的映射用于恢复导入集合的引用关系。重复导入同一文件不重复新增案例或成员关系；这不是按原 ID 镜像恢复，有意保留的同内容副本可能合并。

@@ -417,22 +417,23 @@
               <svg class="icon file-icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5 2.8h6l4 4v10.4H5z"/><path d="M11 2.8v4h4"/></svg>
               <div class="file-info">
                 <strong id="io-file-name">未选择文件</strong>
-                <span class="muted small" id="io-file-summary">选择 JSON 或 JSONL 标准包</span>
+                <span class="muted small" id="io-file-summary">粘贴变量对象，或选择 JSON / JSONL 文件</span>
               </div>
               <div class="file-actions">
                 <input type="file" id="io-file-input" accept=".json,.jsonl,application/json,application/x-ndjson" hidden>
                 <button type="button" class="btn tiny" id="io-choose-file">选择文件</button>
-                <button type="button" class="btn tiny" id="io-example-json" hidden>示例</button>
               </div>
             </div>
             <div class="io-target-row">
+              <label class="inline-field"><span>数据格式</span><select class="input select" id="io-input-format"><option value="eve-vocat">Eve / Vocat 变量</option><option value="package">Promptbench 标准包</option></select></label>
               <label class="inline-field"><span>目标集合（追加）</span><select class="input select" id="io-target-collection"></select></label>
             </div>
-            <details class="io-paste">
-              <summary>粘贴 JSON / JSONL</summary>
-              <textarea class="code-editor io-paste-area" id="io-paste-text" spellcheck="false" placeholder="粘贴标准包内容"></textarea>
+            <div class="io-paste">
+              <label for="io-paste-text">粘贴 JSON / JSONL</label>
+              <p class="muted small" id="io-paste-help">CurrentText 和 SourceLanguage 必填；PriorText、ReplacementMap 缺省为空。支持对象、对象数组或每行一个对象；ID 自动生成。</p>
+              <textarea class="code-editor io-paste-area" id="io-paste-text" aria-describedby="io-paste-help" spellcheck="false" placeholder='{"CurrentText":"法治的理念要得到践行。","PriorText":"问渠哪得清如许？为有源头活水来。\n我是一个长期生活在书斋里的人。","ReplacementMap":"","SourceLanguage":"zh-CN"}'></textarea>
               <button type="button" class="btn tiny" id="io-parse-paste">解析粘贴内容</button>
-            </details>
+            </div>
           </section>
 
           <div class="io-counts" id="io-counts">
@@ -448,7 +449,7 @@
 
           <div class="table-wrap io-preview-wrap">
             <table class="data-table io-preview-table">
-              <thead><tr><th scope="col">Case ID · CurrentText 摘录</th><th scope="col">结果</th><th scope="col">写入动作</th></tr></thead>
+              <thead><tr><th scope="col">No</th><th scope="col">SourceLanguage</th><th scope="col">CurrentText</th><th scope="col">PriorText</th><th scope="col">ReplacementMap</th><th scope="col">写入</th></tr></thead>
               <tbody id="io-preview-body"></tbody>
             </table>
           </div>

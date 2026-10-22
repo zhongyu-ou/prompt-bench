@@ -408,3 +408,154 @@ func TestCasePackageFileIDNeverUpdatesExistingCase(t *testing.T) {
 		t.Fatal("file ID collision modified the existing Case")
 	}
 }
+
+func TestEveVocatImportObjectsAndNumberFidelity(t *testing.T) {
+	first := `{"CurrentText":"帮我 schedule 一下明天的 meeting。","SourceLanguage":"zh-CN","PriorText":"","ReplacementMap":"","large":9007199254740993,"nested":{"n":1.2300e+2},"values":[1.0,null]}`
+	second := `{"CurrentText":"second","SourceLanguage":"en"}`
+	for _, tc := range []struct {
+		name, format, content string
+		count                 int
+	}{
+		{"object", "json", first, 1},
+		{"array", "json", "[" + first + "," + second + "]", 2},
+		{"jsonl", "jsonl", "\n" + first + "\n \n" + second + "\n", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := parseCaseImport("eve-vocat", tc.format, tc.content)
+			if err != nil || len(p.Cases) != tc.count || len(p.Collections) != 0 {
+				t.Fatalf("parse = %#v, %v", p, err)
+			}
+			for i, c := range p.Cases {
+				if c.ID != fmt.Sprintf("row-%d", i+1) {
+					t.Fatalf("row ID = %q", c.ID)
+				}
+			}
+			if p.Cases[len(p.Cases)-1].Variables["PriorText"] != "" || p.Cases[len(p.Cases)-1].Variables["ReplacementMap"] != "" {
+				t.Fatal("missing optional fields were not defaulted to empty strings")
+			}
+			if !reflect.DeepEqual(p.Cases[0].Variables, packageTestVariables(t, first)) {
+				t.Fatalf("variables changed: %#v", p.Cases[0].Variables)
+			}
+			if n, ok := p.Cases[0].Variables["large"].(json.Number); !ok || n.String() != "9007199254740993" {
+				t.Fatalf("large number changed: %#v", p.Cases[0].Variables["large"])
+			}
+			encoded := packageTestContent(t, p, "json")
+			roundTrip, err := parseCaseImport("package", "json", encoded)
+			if err != nil || !reflect.DeepEqual(roundTrip, p) {
+				t.Fatalf("package round trip = %#v, %v", roundTrip, err)
+			}
+		})
+	}
+	for _, format := range []string{"json", "jsonl"} {
+		rows := []string{
+			`{"CurrentText":"same","SourceLanguage":"en","value":1}`,
+			`{"CurrentText":"same","SourceLanguage":"en","value":1.0}`,
+			`{"CurrentText":"same","SourceLanguage":"en","value":1e0}`,
+		}
+		content := strings.Join(rows, "\n")
+		if format == "json" {
+			content = "[" + strings.Join(rows, ",") + "]"
+		}
+		p, err := parseCaseImport("eve-vocat", format, content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := planCasePackageImport(State{}, p, nil)
+		if err != nil || plan.Preview.NewCount != 3 {
+			t.Fatalf("number lexemes collapsed: %#v, %v", plan, err)
+		}
+	}
+}
+
+func TestEveVocatImportRejectsInvalidInputs(t *testing.T) {
+	for _, content := range []string{"", " ", "null", "true", "42", `"text"`, "[]", "[null]", "[{} , 1]", `{"TargetLanguageNameMap":null}`, `[{},{"TargetLanguageNameMap":{}}]`, "{} {}", "[{}"} {
+		if _, err := parseCaseImport("eve-vocat", "json", content); err == nil {
+			t.Errorf("accepted JSON %q", content)
+		}
+	}
+	for _, content := range []string{"", "\n \n", "null", "[]", "{}\n42", "{} {}\n", "{}\n{\"TargetLanguageNameMap\":{}}"} {
+		if _, err := parseCaseImport("eve-vocat", "jsonl", content); err == nil {
+			t.Errorf("accepted JSONL %q", content)
+		}
+	}
+	for _, tc := range []struct{ inputFormat, format string }{{"unknown", "json"}, {"eve-vocat", "yaml"}, {"", "json"}, {"package", "json"}} {
+		if _, err := parseCaseImport(tc.inputFormat, tc.format, `{}`); err == nil {
+			t.Errorf("accepted input_format=%q format=%q", tc.inputFormat, tc.format)
+		}
+	}
+	for _, content := range []string{
+		`{}`,
+		`{"CurrentText":"text"}`,
+		`{"SourceLanguage":"en"}`,
+		`{"CurrentText":"","SourceLanguage":"en"}`,
+		`{"CurrentText":" \n","SourceLanguage":"en"}`,
+		`{"CurrentText":null,"SourceLanguage":"en"}`,
+		`{"CurrentText":42,"SourceLanguage":"en"}`,
+		`{"CurrentText":"text","SourceLanguage":" "}`,
+		`{"CurrentText":"text","SourceLanguage":null}`,
+		`{"CurrentText":"text","SourceLanguage":42}`,
+	} {
+		for _, format := range []string{"json", "jsonl"} {
+			if _, err := parseCaseImport("eve-vocat", format, content); err == nil {
+				t.Errorf("accepted missing/invalid required field: %s %q", format, content)
+			}
+		}
+	}
+}
+
+func TestEveVocatAPIAtomicityDedupAndStaleVersion(t *testing.T) {
+	h := newHarness(t, nil)
+	base := h.view()
+	input := casePackageImportInput{
+		StateVersion: base.Version, InputFormat: "eve-vocat", Format: "json",
+		Content: `[{"CurrentText":"raw-import-unique","SourceLanguage":"en","n":1.00},{"n":1.00,"CurrentText":"raw-import-unique","SourceLanguage":"en","PriorText":"","ReplacementMap":""}]`,
+	}
+	var preview casePackagePreview
+	h.api("POST", "/api/cases/import/preview", input, 200, &preview)
+	if preview.NewCount != 1 || preview.ExistingCount != 1 || len(preview.Cases) != 2 || preview.Cases[0].FileID != "row-1" || preview.Cases[1].FileID != "row-2" {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if got := h.view(); !reflect.DeepEqual(got.State, base.State) {
+		t.Fatal("preview wrote state")
+	}
+	for _, path := range []string{"/api/cases/import/preview", "/api/cases/import"} {
+		for _, content := range []string{`[{"CurrentText":"valid-before-bad","SourceLanguage":"en"},null]`, `[{"CurrentText":"valid-before-bad","SourceLanguage":"en"},{"CurrentText":"missing-language"}]`, `[{},{"TargetLanguageNameMap":{}}]`} {
+			bad := input
+			bad.Content = content
+			h.api("POST", path, bad, 400, nil)
+		}
+		bad := input
+		bad.CollectionIDs = []string{"missing-target"}
+		h.api("POST", path, bad, 400, nil)
+		bad = input
+		bad.StateVersion--
+		bad.InputFormat, bad.Content = "unknown", "invalid"
+		h.api("POST", path, bad, 409, nil)
+		if got := h.view(); !reflect.DeepEqual(got.State, base.State) {
+			t.Fatalf("failed %s wrote state", path)
+		}
+	}
+	var committed struct {
+		State         StateView         `json:"state"`
+		NewCount      int               `json:"new_count"`
+		ExistingCount int               `json:"existing_count"`
+		CaseIDMap     map[string]string `json:"case_id_map"`
+	}
+	h.api("POST", "/api/cases/import", input, 200, &committed)
+	localID := committed.CaseIDMap["row-1"]
+	if committed.NewCount != 1 || committed.ExistingCount != 1 || len(committed.State.Cases) != len(base.Cases)+1 || localID == "" || localID == "row-1" || localID != committed.CaseIDMap["row-2"] {
+		t.Fatalf("commit = %#v", committed)
+	}
+	if decoded, err := hex.DecodeString(localID); err != nil || len(decoded) != 16 {
+		t.Fatalf("local ID is not random opaque ID: %q", localID)
+	}
+	for _, path := range []string{"/api/cases/import/preview", "/api/cases/import"} {
+		h.api("POST", path, input, 409, nil)
+	}
+	input.StateVersion = committed.State.Version
+	input.Format, input.Content = "jsonl", "{\"CurrentText\":\"raw-import-unique\",\"SourceLanguage\":\"en\",\"n\":1.00}\n{\"n\":1.00,\"CurrentText\":\"raw-import-unique\",\"SourceLanguage\":\"en\"}\n"
+	h.api("POST", "/api/cases/import", input, 200, &committed)
+	if committed.NewCount != 0 || committed.ExistingCount != 2 || committed.CaseIDMap["row-1"] != localID || len(committed.State.Cases) != len(base.Cases)+1 {
+		t.Fatalf("reimport = %#v", committed)
+	}
+}
