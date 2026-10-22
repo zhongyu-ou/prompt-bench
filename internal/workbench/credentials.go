@@ -108,7 +108,7 @@ func (s *Store) decryptCredential(ref string, encrypted []byte) (string, error) 
 }
 func (s *Store) manualCredential(ref string) (string, bool, error) {
 	var encrypted []byte
-	err := s.db.QueryRow("SELECT ciphertext FROM credentials WHERE ref=?", ref).Scan(&encrypted)
+	err := s.db.QueryRow("SELECT ciphertext FROM credentials WHERE ref=$1", ref).Scan(&encrypted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}

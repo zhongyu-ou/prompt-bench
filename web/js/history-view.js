@@ -8,7 +8,7 @@ function renderHistoryList() {
   const list = $('history-run-list');
   if (!list) return;
   $('history-count').textContent = String(App.runs.length);
-  $('history-meta').textContent = `${App.runs.length} 个持久化批次 · 历史保存在服务端 SQLite`;
+  $('history-meta').textContent = `${App.runs.length} 个持久化批次`;
   if (!App.runs.length) {
     list.innerHTML = App.runsLoaded
       ? '<div class="empty-state">尚无持久化运行记录。完成一次运行后可在这里查看、导出或复跑。</div>'

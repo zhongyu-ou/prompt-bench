@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -251,11 +250,9 @@ func TestEvaluationGenerationFailureAndMissingTarget(t *testing.T) {
 	}
 }
 func TestEvaluationRecoveryPreservesGenerationAndPriorHistory(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data", "promptbench.sqlite")
-	s, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	target := newTestStoreTarget(t)
+	s := target.open(t)
+	var err error
 	completed := Detail{Batch: Batch{ID: "old", CreatedAt: now(), Status: "completed", Total: 1, Completed: 1}, Results: []Result{{ID: "old-r", Status: "completed", Output: "historical raw", RawResponse: "preserved"}}}
 	if err = s.create(completed); err != nil {
 		t.Fatal(err)
@@ -267,7 +264,7 @@ func TestEvaluationRecoveryPreservesGenerationAndPriorHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.close()
-	s, err = openStore(path)
+	s, err = openStore(target.DSN, target.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}

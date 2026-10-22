@@ -27,10 +27,7 @@ type harness struct {
 
 func newHarness(t *testing.T, getenv func(string) string) *harness {
 	t.Helper()
-	s, err := openStore(filepath.Join(t.TempDir(), "data", "promptbench.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newTestStoreTarget(t).open(t)
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
@@ -357,20 +354,18 @@ func TestGlobalCapStopAndNoBrowserOwnership(t *testing.T) {
 	}
 }
 
-func TestRestartAndExclusiveDirectoryLock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data", "promptbench.sqlite")
-	s, err := openStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRestartAndExclusiveDatabaseLock(t *testing.T) {
+	target := newTestStoreTarget(t)
+	s := target.open(t)
+	var err error
 	d := Detail{Batch: Batch{ID: "restart", Name: "Interrupted", Status: "running", CreatedAt: now(), Total: 3, InFlight: 1, Completed: 1, Concurrency: 2}, Snapshot: Snapshot{Requests: []FrozenRequest{}}, Results: []Result{{ID: "done", CaseID: "a", GroupID: "g", Iteration: 1, Status: "completed"}, {ID: "inflight", CaseID: "a", GroupID: "g", Iteration: 2, Status: "running"}, {ID: "pending", CaseID: "a", GroupID: "g", Iteration: 3, Status: "pending"}}}
 	if err = s.create(d); err != nil {
 		t.Fatal(err)
 	}
-	second, err := openStore(path)
+	second, err := openStore(target.DSN, t.TempDir())
 	if err == nil {
 		second.close()
-		t.Fatal("second process acquired live directory")
+		t.Fatal("second process acquired live database")
 	}
 	if !strings.Contains(err.Error(), "already in use") {
 		t.Fatal(err)
@@ -383,7 +378,7 @@ func TestRestartAndExclusiveDirectoryLock(t *testing.T) {
 		t.Fatal("failed second open mutated active work")
 	}
 	s.close()
-	s, err = openStore(path)
+	s, err = openStore(target.DSN, target.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +398,9 @@ func TestRestartAndExclusiveDirectoryLock(t *testing.T) {
 	if e.active != nil {
 		t.Fatal("restart automatically resumed")
 	}
-	for _, p := range []string{filepath.Dir(path), path, filepath.Join(filepath.Dir(path), "promptbench.lock")} {
+	other := newTestStoreTarget(t).open(t)
+	defer other.close()
+	for _, p := range []string{target.DataDir, filepath.Join(target.DataDir, "credentials.key")} {
 		info, err := os.Stat(p)
 		if err != nil {
 			t.Fatal(err)
@@ -411,10 +408,6 @@ func TestRestartAndExclusiveDirectoryLock(t *testing.T) {
 		if info.Mode().Perm()&0077 != 0 {
 			t.Fatalf("non-private permissions %s: %o", p, info.Mode().Perm())
 		}
-	}
-	bytes, err := os.ReadFile(path)
-	if err != nil || !strings.HasPrefix(string(bytes), "SQLite format 3") {
-		t.Fatal("not actual SQLite persistence")
 	}
 }
 

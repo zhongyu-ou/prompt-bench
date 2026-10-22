@@ -1,11 +1,11 @@
 # Promptbench
 
-A standalone local prompt workbench with Go `text/template` rendering, editable Cases/templates/Providers, explicit comparison configurations, concurrent repeated calls, reusable evaluation metrics and durable SQLite history. **OpenAI Chat Completions** is supported for text generation and **Typesafe System One (JEV)** for decision-only model metrics. Provider brand/model is separate from protocol. No Agent Evals account or platform database is involved. Browser assets are embedded; no Node build is required.
+A standalone local prompt workbench with Go `text/template` rendering, editable Cases/templates/Providers, explicit comparison configurations, concurrent repeated calls, reusable evaluation metrics and durable PostgreSQL history. **OpenAI Chat Completions** is supported for text generation and **Typesafe System One (JEV)** for decision-only model metrics. Provider brand/model is separate from protocol. No Agent Evals account or platform database is involved. Browser assets are embedded; no Node build is required.
 
 ## Layout
 
 - `main.go` is a thin process entry: it calls `workbench.Run()` and only handles process failure reporting.
-- `internal/workbench/` owns the application: flags and lifecycle, HTTP API, domain/wire types, rendering and protocol adapters, execution engine, SQLite persistence and migrations, credentials, seed data, and the white-box tests. The root entrypoint depends only on `Run`, and `internal/` restricts the application's import to this module. Storage, scheduling, HTTP, protocol and model implementation stay together rather than being split into layered service/repository interfaces for hypothetical reuse; add a package when a real boundary (security, external system, independent lifecycle) requires one.
+- `internal/workbench/` owns configuration, HTTP API, domain/wire types, rendering and protocol adapters, execution, PostgreSQL persistence, credentials, seed data, and white-box tests. The root entrypoint depends only on `Run`; no speculative service/repository layers.
 - `web/` exports the embedded `Assets` (`index.html`, `js`, `css`), served directly by the workbench. The browser app boots from the native ES module `web/js/main.js`: shared `state.js`, `model.js` and `api.js`; `persistence.js` and `mutations.js` own saves and optimistic-version adoption; feature modules cover templates, the case library/editor/IO, groups, selection, runs, history, metrics/evaluation summaries, providers and settings, with supporting modules for navigation, views, preview/output, snapshots/run plans and feedback. Ordered stylesheets live in `web/css/` and are linked from `index.html`; preserve that order.
 - `cmd/fixture/` is the standalone local OpenAI-compatible fixture. `docs/` holds API contracts and scoped historical verification evidence; `database/` is private runtime state. The architecture refactor scope and verification status are recorded in [docs/tasks/architecture-refactor.md](docs/tasks/architecture-refactor.md).
 
@@ -13,16 +13,19 @@ Existing commands remain the interface: `go run .`, `make run`, `make build`, `m
 
 ## Run
 
-Requires Go 1.25+ on macOS or Linux. SQLite uses the pinned pure-Go `modernc.org/sqlite v1.39.1` driver; no C compiler or external database service is required. Initial `go run` downloads Go modules.
+Requires Go 1.25+ on macOS or Linux and a PostgreSQL database. Create a dedicated empty UTF-8 database owned by the configured role, then copy `config/config.example.yml` to `config/config.yml`, edit its connection settings, and restrict it with `chmod 600 config/config.yml`. The actual file is Git-ignored; the example contains no secrets. Initial `go run` downloads Go modules.
 
 ```sh
 cd /path/to/promptbench
+cp config/config.example.yml config/config.yml
+chmod 600 config/config.yml
+# Edit config/config.yml with your PostgreSQL connection settings before starting.
 go run . --env-file "$HOME/.config/promptbench/keys.env" --listen 127.0.0.1:8787
 ```
 
 Open the exact printed URL, normally **http://127.0.0.1:8787**. `--env-file` is optional: use environment keys, a manually entered Provider override, or an explicitly anonymous fixture. Public binds are rejected; `localhost` normalizes to `127.0.0.1`, and literal IPv6 loopback is supported. A hostname different from the printed URL is deliberately rejected.
 
-With Make installed, `make dev` starts development mode using pinned [Air v1.64.5](https://github.com/air-verse/air/tree/v1.64.5), downloaded automatically on first use without a global install or changes to the application's Go dependencies. It watches Go source, embedded templates, HTML/CSS/JS, and `go.mod`/`go.sum`, then rebuilds and restarts after saves. Refresh the browser after restart to load updated embedded assets; there is no browser proxy or automatic page refresh. Runtime data, docs, fixture sources, test files, and build output are excluded. Changes to `.air.toml` or env files require restarting the watcher.
+With Make installed, `make dev` starts development mode using pinned [Air v1.64.5](https://github.com/air-verse/air/tree/v1.64.5), downloaded automatically without changing application dependencies. It watches Go source, embedded templates, HTML/CSS/JS and Go module files. Refresh the browser after restart. Runtime data, docs, fixture sources, test files and build output are excluded. YAML configuration, `.air.toml` and env-file changes require restarting the watcher.
 
 Use `make run` (or `go run .`) for normal runs without watching, `make build` to build `./promptbench`, and `make test` to run all Go tests. Development restarts use graceful shutdown: unissued attempts stop, and issued requests finish and persist before the replacement process starts (up to the configured upstream timeout, with a 61-minute forced-shutdown ceiling). Use `make run` when running real batches so saving code does not stop the batch.
 
@@ -55,7 +58,7 @@ Type a new key into the Provider password field to replace the manual override, 
 
 The Provider dialog's **Save Provider** submits changes to the backend immediately through the shared state save, including any other pending draft edits. Successful saves survive refresh; failed saves leave the dialog open with its input intact and show an error. Retrying a failed creation saves the same staged Provider rather than creating a duplicate.
 
-Manual keys are AES-256-GCM encrypted in SQLite using private generated `credentials.key` under the owner-only data directory. The keyfile is 32 bytes and must be backed up with the database. Missing/corrupt/mismatched master material with encrypted rows fails safely, never generates a replacement or pretends no override exists. This is local-at-rest protection for database-only copies, **not protection from the same OS user who can read both files**. Actual keys never enter editable state, frozen providers, raw requests, exports or logs; known upstream key echoes are redacted, including escaped JSON forms. Never paste keys into case variables/template/model parameters/URL: arbitrary user-authored data is persisted.
+Manual keys are AES-256-GCM encrypted in PostgreSQL using private generated `credentials.key` under the owner-only key directory. The keyfile is 32 bytes and must be backed up with the database. Missing/corrupt/mismatched master material with encrypted rows fails safely, never generates a replacement or pretends no override exists. This protects database-only copies, **not against the OS user who can read both database and key**. Actual keys never enter editable state, frozen providers, raw requests, exports or logs; known upstream key echoes are redacted. Never paste keys into case variables/template/model parameters/URL: arbitrary user-authored data is persisted.
 
 Deleting a Provider intentionally retains its encrypted override for historical replay. To revoke it, **Clear before deleting or Clear and delete in the same save**; otherwise the historical reference remains usable. Recreating the same Provider ID gets a new reference and cannot inherit/read an old secret. Clear/removal does not cancel or change an already-started batch. An authenticated original whose credential is no longer available fails replay unless its frozen env reference supplies a valid fallback.
 
@@ -76,7 +79,7 @@ Initial state contains four example ASR input Cases and an embedded `seed.tmpl`;
 - Refreshing/closing the browser does not stop backend execution. Stop cancels only unissued generation/metric work; in-flight calls finish and persist. Graceful server shutdown stops unissued work and waits for issued calls (up to their configured timeout).
 - Every attempt is visible as pending/running/completed/failed/cancelled/interrupted. History preserves frozen input sources, endpoint, requested/returned model identities, parameter presence, rendered request bytes, raw response, HTTP errors, decode errors and duration. Evaluation metrics add declared judgments beside the output; they are not an implicit pass/fail gate.
 - Replay creates a new batch from the old frozen snapshot even if current cases/templates/providers were changed or deleted. It does not silently resend on restart. Missing credentials fail before sending any calls.
-- A crash/restart marks unfinished work interrupted/unknown. An unknown response may still have been billed; Promptbench never assumes it was safe to resend. A second server using the same data directory is rejected by an exclusive process lock before any recovery writes.
+- A crash/restart marks unfinished work interrupted/unknown. An unknown response may still have been billed; Promptbench never assumes it was safe to resend. A PostgreSQL session advisory lock rejects another server on the same database/schema before initialization or recovery, even with a different local key directory.
 
 ## Evaluation metrics
 
@@ -89,34 +92,39 @@ Initial state contains four example ASR input Cases and an embedded `seed.tmpl`;
 
 ## Persistence, backups and limits
 
-Default data directory: **`./database`**, relative to the working directory. SQLite file: `promptbench.sqlite`; owner-only directory/file permissions are enforced. `promptbench.lock` is an advisory process lock, released automatically when the process exits; its leftover filename is harmless. Use a dedicated directory, since Promptbench restricts its permissions. The local `database/` directory is excluded from Git.
+Service configuration defaults to **`config/config.yml`**, relative to the working directory; select another file with `--config`. Only `server` (`host`, `port`) and `database` (`host`, `port`, `user`, `password`, `name`, `sslmode`) are accepted. Unknown/duplicate keys, empty files, multiple documents and missing files fail explicitly. Listen addresses remain loopback-only. Environment variables do not override YAML; `--env-file` supplies Provider credentials only.
+
+`--listen` explicitly overrides the YAML server address for that launch. `--data-dir` defaults to **`./database`** and now stores only the private `credentials.key`; directory/key permissions are 0700/0600. `--env-file` defaults to empty. `--help` needs neither a configuration file nor a database.
 
 ```sh
-go run . --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-isolated
-# Or build a self-contained executable with the current web assets:
+go run . --config config/config.yml --listen 127.0.0.1:8788 --data-dir /path/to/private-keys
 go build -o promptbench .
-./promptbench --listen 127.0.0.1:8787 --data-dir ./database
+./promptbench --config config/config.yml
 ```
 
-Flags: `--listen` (default `127.0.0.1:8787`), `--data-dir` (default above), `--env-file` (default empty). `--help` prints usage. Stop the server, then copy **both `promptbench.sqlite` and `credentials.key`** for a consistent backup; restore matching files into a stopped server's private directory. Preserve the keyfile even if the database is moved. Per-batch Download JSON is a read-only history export, not state import or a credential backup. No automatic history deletion; watch disk use. Legacy env-only state/history migrates additively once, preserving user edits, original request bytes/hashes and results. A newer unsupported database schema is rejected, not downgraded.
+PostgreSQL is the only runtime/test backend. The current schema version is 1, separate from optimistic `state.version`. Empty schemas initialize atomically; nonempty unversioned and unsupported schemas are rejected, never reset. Historical JSON/request/response/ciphertext bytes use BYTEA, not JSONB. Existing SQLite files require a separately verified one-time offline migration; the application does not open or upgrade them. See [storage guarantees](docs/api.md#storage-and-migration).
 
-Existing databases are upgraded without rewriting historical snapshots/results. Unsupported or conflicting old Case data aborts the upgrade with actionable details; see [migration guarantees](docs/api.md#storage-and-migration). Do not reset an existing database to resolve an upgrade error.
+One physical PG session serializes transactions and holds the advisory lock. Connect directly or through **session pooling**, never transaction pooling. If that session is lost, the process refuses reconnection and further dispatch; restart to reacquire the lock and recover unfinished work. Unspecified connection/statement timeouts default to 5/30 seconds.
+
+For backup, stop the application, use PostgreSQL backup tooling (for example `pg_dump`), and preserve the matching `credentials.key` securely. Restore both before starting against the restored database. Keep the key when moving the database to another host. Per-batch JSON exports are history exports, not credential/database backups. No automatic history deletion.
 
 Limits: 8 MiB inbound JSON, 1 MiB rendered content per message, 16 MiB captured response body per attempt, 100000 attempts per batch, 1000 repeats per group and 3600-second maximum request timeout (default 120). Oversized response capture fails explicitly and retains its prefix. These are local accident guards, not a sandbox for untrusted templates; Go template builtins can still perform substantial computation. Non-UTF-8 response bytes are preserved in `raw_response_base64`. Actual resolved keys echoed by upstream are redacted before persistence/UI/export; redaction is the intentional exception to exact raw-response preservation. Auth headers are never persisted. Provider URLs with credentials/query/fragment are rejected. The local API checks Host/Origin, requires JSON mutations and does not enable CORS.
 
 ## Local verification without paid services
 
 ```sh
-go test ./...
+# Set PROMPTBENCH_TEST_DATABASE_URL securely to a dedicated database ending in _test.
+# Tests require it explicitly and create/drop only their own unique schemas.
+go test -race ./...
 # Terminal 1: an HTTP fixture, NOT a real model or quality assessment:
 go run ./cmd/fixture --listen 127.0.0.1:9797 --delay 150ms
-# Terminal 2: separate smoke-test state; do not contaminate your normal history:
-go run . --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-browser-smoke
+# Terminal 2: use a separate empty smoke database in a private smoke YAML:
+go run . --config /path/to/smoke.yml --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-browser-smoke
 ```
 
 In the workbench at `http://127.0.0.1:8788`, configure a provider with base URL `http://127.0.0.1:9797/v1` and empty credential env name, then point explicit groups at it. Any model name returns an unmistakably labeled fixture echo with a distinct returned-model identity. Model `fixture-http-error` returns HTTP 422; `fixture-invalid-json` returns a decode failure. Set a longer fixture `--delay 1s` to observe progress, refresh and stopping. Inspect history, frozen request/response details, replay and Download JSON. This only verifies HTTP/lifecycle/UI integration; it does **not** verify Azure, model access, model behavior or translation quality.
 
-Credential fixture smoke (synthetic values only): run the fixture with `PROMPTBENCH_FIXTURE_MANUAL_KEY=fixture-manual-only PROMPTBENCH_FIXTURE_ENV_KEY=fixture-env-only go run ./cmd/fixture --listen 127.0.0.1:9797`. Run isolated app with `FAKE_PROVIDER_ENV=fixture-env-only go run . --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-credential-ui`. Set Provider env name `FAKE_PROVIDER_ENV`, manual key `fixture-manual-only`, model `fixture-auth-manual`: output says `AUTH MATCH: manual`. Clear the override and use `fixture-auth-env`: output says `AUTH MATCH: env`. Wrong auth returns401; actual credential values are never echoed. Do not use real secrets or default user data for these checks.
+Credential fixture smoke uses synthetic values only: start the fixture with `PROMPTBENCH_FIXTURE_MANUAL_KEY=fixture-manual-only PROMPTBENCH_FIXTURE_ENV_KEY=fixture-env-only go run ./cmd/fixture --listen 127.0.0.1:9797`. Start the app with a separate smoke database/config and `FAKE_PROVIDER_ENV=fixture-env-only`. Configure Provider env name `FAKE_PROVIDER_ENV`, manual key `fixture-manual-only`, model `fixture-auth-manual`: output says `AUTH MATCH: manual`. Clear the override and use `fixture-auth-env`: output says `AUTH MATCH: env`. Wrong auth returns 401; credentials are never echoed. Never use real secrets or the normal application database for these checks.
 
 See [docs/api.md](docs/api.md) for the precise JSON contract.
 

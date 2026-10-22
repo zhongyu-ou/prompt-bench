@@ -12,3 +12,4 @@ docs/ui/
 docs/case-ui-check/
 database/
 .air-tmp/
+/config/config.yml

@@ -46,3 +46,19 @@ Read-only API/browser checks found healthy endpoints, only the implemented proto
 - Only `openai-chat-completions` was implemented and exercised; no other native provider adapter or real Provider/model access is established.
 - Browser interaction and OS-download limits belong to [ui-check.md](ui-check.md).
 - The later Case migration supersedes this upgrade's user-state inventory; see [Case backend acceptance](case-backend-check.md). This record is evidence of exercised checks, not a live process-status report.
+
+## PostgreSQL/config cutover — 2026-10-22
+
+The earlier SQLite checks above are historical. Runtime and integration tests now use PostgreSQL only.
+
+- Strict `TestConfig` passed without a database; focused PostgreSQL/config/restart/credential/recovery tests passed against an explicitly supplied `_test` database, with a unique schema per test.
+- `go test -race ./...` passed against PostgreSQL, including existing request fidelity, optimistic concurrency, credentials, Case number fidelity, scheduling and evaluation regressions.
+- Backend termination affected only the test Store session: the old Store could not reconnect or dispatch another Provider request; a fresh Store recovered the batch as interrupted.
+- An actual executable started on the YAML-selected port; explicit `--listen` overrode that port. `--help` succeeded with a nonexistent config path. A second process with another key directory was rejected before creating that directory; first-process history stayed unchanged.
+- Isolated browser flow created a Case, saved an anonymous loopback fixture Provider and one-repeat group, ran successfully, refreshed, restarted the process, read history, and replayed. After editing the live template, replay still preserved original request bytes/hash. `fixture-http-error` persisted HTTP 422/failed, not a database error.
+- External synthetic import rehearsal rejected wrong schema/key/authentication/orphan data and rolled back injected mid-copy failure, including DDL. Successful import preserved every column and BYTEA hash; duplicate/nonempty imports were rejected. Actual application startup retained the completed synthetic batch and interrupted the unfinished batch; immutable-history reconciliation passed afterward.
+- Real offline backup import copied state 1, batches 14, results 206, credentials 0 and migration archives 1. Independent prelaunch comparison matched every column/key/BYTEA hash. Post-start immutable-history reconciliation also matched; no recovery-mutated cells were skipped. Original SQLite/key hashes remained unchanged.
+- Read-only real API checks loaded state, all 14 history details and the original resource inventory (4 Cases, 2 templates, 3 Providers, 3 metrics). Actual browser pages rendered those resources and original history. No real Provider request/replay was made. Encrypted credential migration is synthetic/test evidence: the real source contained no manual credential rows.
+- Local config permissions were 0600; Git ignored only the actual config, not its example. Passwords/DSNs were not passed in process arguments or emitted in verification logs.
+
+PostgreSQL 17.7 was exercised locally. Remote TLS deployments, transaction-pooling compatibility and real model quality/access were not established; transaction pooling is unsupported.

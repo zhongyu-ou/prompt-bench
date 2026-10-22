@@ -96,13 +96,25 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 	}
 	for i := range snapshot.Metrics {
 		f := &snapshot.Metrics[i]
-		if err := validateMetric(f.Metric); err != nil { return Batch{}, err }
-		if err := validateMetricTarget(f.Target); err != nil { return Batch{}, err }
-		if f.Metric.Kind != "model" { continue }
-		if f.Provider == nil || f.Provider.Protocol != typesafeProtocol || f.Provider.CredentialRef == "" { return Batch{}, errors.New("snapshot decision provider is missing") }
-		if _, err := typesafeEndpoint(*f.Provider); err != nil { return Batch{}, err }
+		if err := validateMetric(f.Metric); err != nil {
+			return Batch{}, err
+		}
+		if err := validateMetricTarget(f.Target); err != nil {
+			return Batch{}, err
+		}
+		if f.Metric.Kind != "model" {
+			continue
+		}
+		if f.Provider == nil || f.Provider.Protocol != typesafeProtocol || f.Provider.CredentialRef == "" {
+			return Batch{}, errors.New("snapshot decision provider is missing")
+		}
+		if _, err := typesafeEndpoint(*f.Provider); err != nil {
+			return Batch{}, err
+		}
 		key, _, err := e.store.credential(f.Provider.CredentialRef, f.Provider.APIKeyEnv, true, e.getenv)
-		if err != nil { return Batch{}, fmt.Errorf("metric %s: %w", f.Metric.Name, err) }
+		if err != nil {
+			return Batch{}, fmt.Errorf("metric %s: %w", f.Metric.Name, err)
+		}
 		keys[f.Provider.CredentialRef] = key
 		f.RequiresAuth = true
 	}
@@ -135,7 +147,9 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 			d.Results[i].Evaluations = append(d.Results[i].Evaluations, MetricOutcome{MetricID: f.Metric.ID, Status: "pending"})
 			d.Batch.Evaluation.Total++
 			d.Batch.Evaluation.Pending++
-			if f.Metric.Kind == "model" { d.Batch.MaxModelCalls++ }
+			if f.Metric.Kind == "model" {
+				d.Batch.MaxModelCalls++
+			}
 		}
 	}
 	if d.Batch.Total == 0 {
@@ -182,18 +196,28 @@ func (e *Engine) worker(a *activeBatch) {
 		r = e.call(r, f, key, timeout)
 		e.mu.Lock()
 		a.detail.Batch.InFlight--
-		if r.Status == "completed" { a.detail.Batch.Completed++ } else { a.detail.Batch.Failed++ }
+		if r.Status == "completed" {
+			a.detail.Batch.Completed++
+		} else {
+			a.detail.Batch.Failed++
+		}
 		a.detail.Results[idx] = r
 		e.finish(a)
-		if err := e.store.update(a.detail.Batch, r); err != nil { e.fatal = err }
+		if err := e.store.update(a.detail.Batch, r); err != nil {
+			e.fatal = err
+		}
 		e.mu.Unlock()
 		r = e.evaluateResult(a, idx, r, f)
 		e.mu.Lock()
 		e.finish(a)
-		if err := e.store.update(a.detail.Batch, r); err != nil { e.fatal = err }
-		// Completed payloads live in SQLite, not a second in-memory history.
+		if err := e.store.update(a.detail.Batch, r); err != nil {
+			e.fatal = err
+		}
+		// Completed payloads live in PostgreSQL, not a second in-memory history.
 		a.detail.Results[idx] = Result{}
-		if a.detail.Batch.FinishedAt != "" { e.active = nil }
+		if a.detail.Batch.FinishedAt != "" {
+			e.active = nil
+		}
 		e.mu.Unlock()
 	}
 }
