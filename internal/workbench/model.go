@@ -66,11 +66,12 @@ type Settings struct {
 	TimeoutSeconds int `json:"timeout_seconds"`
 }
 type Draft struct {
-	Name            string   `json:"name"`
-	CaseIDs         []string `json:"case_ids"`
-	CollectionIDs   []string `json:"collection_ids"`
-	ExcludedCaseIDs []string `json:"excluded_case_ids"`
-	Groups          []Group  `json:"groups"`
+	Name            string            `json:"name"`
+	CaseIDs         []string          `json:"case_ids"`
+	CollectionIDs   []string          `json:"collection_ids"`
+	ExcludedCaseIDs []string          `json:"excluded_case_ids"`
+	Groups          []Group           `json:"groups"`
+	Metrics         []MetricSelection `json:"metrics"`
 }
 type State struct {
 	Version     int64        `json:"version"`
@@ -78,17 +79,19 @@ type State struct {
 	Collections []Collection `json:"collections"`
 	Templates   []Template   `json:"templates"`
 	Providers   []Provider   `json:"providers"`
+	Metrics     []Metric     `json:"metrics"`
 	Settings    Settings     `json:"settings"`
 	Draft       Draft        `json:"draft"`
 }
 type RunInput struct {
-	StateVersion    int64    `json:"state_version"`
-	Name            string   `json:"name"`
-	CaseIDs         []string `json:"case_ids"`
-	CollectionIDs   []string `json:"collection_ids"`
-	ExcludedCaseIDs []string `json:"excluded_case_ids"`
-	Groups          []Group  `json:"groups"`
-	Concurrency     int      `json:"concurrency"`
+	StateVersion    int64             `json:"state_version"`
+	Name            string            `json:"name"`
+	CaseIDs         []string          `json:"case_ids"`
+	CollectionIDs   []string          `json:"collection_ids"`
+	ExcludedCaseIDs []string          `json:"excluded_case_ids"`
+	Groups          []Group           `json:"groups"`
+	Concurrency     int               `json:"concurrency"`
+	Metrics         []MetricSelection `json:"metrics"`
 }
 type FrozenRequest struct {
 	CaseID             string              `json:"case_id"`
@@ -119,6 +122,7 @@ type Snapshot struct {
 	Requests       []FrozenRequest `json:"requests"`
 	Selection      *Selection      `json:"selection,omitempty"`
 	Collections    []Collection    `json:"collections,omitempty"`
+	Metrics        []FrozenMetric  `json:"metrics,omitempty"`
 }
 type Selection struct {
 	CaseIDs         []string `json:"case_ids"`
@@ -126,19 +130,21 @@ type Selection struct {
 	ExcludedCaseIDs []string `json:"excluded_case_ids"`
 }
 type Batch struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
-	FinishedAt  string `json:"finished_at"`
-	Total       int    `json:"total"`
-	Completed   int    `json:"completed"`
-	Failed      int    `json:"failed"`
-	Cancelled   int    `json:"cancelled"`
-	Interrupted int    `json:"interrupted"`
-	InFlight    int    `json:"in_flight"`
-	Concurrency int    `json:"concurrency"`
-	ReplayOf    string `json:"replay_of"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Status        string             `json:"status"`
+	CreatedAt     string             `json:"created_at"`
+	FinishedAt    string             `json:"finished_at"`
+	Total         int                `json:"total"`
+	Completed     int                `json:"completed"`
+	Failed        int                `json:"failed"`
+	Cancelled     int                `json:"cancelled"`
+	Interrupted   int                `json:"interrupted"`
+	InFlight      int                `json:"in_flight"`
+	Concurrency   int                `json:"concurrency"`
+	ReplayOf      string             `json:"replay_of"`
+	Evaluation    EvaluationProgress `json:"evaluation"`
+	MaxModelCalls int                `json:"max_model_calls"`
 }
 type Result struct {
 	ID                string          `json:"id"`
@@ -161,11 +167,13 @@ type Result struct {
 	StartedAt         string          `json:"started_at"`
 	FinishedAt        string          `json:"finished_at"`
 	PromptHash        string          `json:"prompt_hash"`
+	Evaluations       []MetricOutcome `json:"evaluations,omitempty"`
 }
 type Detail struct {
-	Batch    Batch    `json:"batch"`
-	Snapshot Snapshot `json:"snapshot"`
-	Results  []Result `json:"results"`
+	Batch             Batch           `json:"batch"`
+	Snapshot          Snapshot        `json:"snapshot"`
+	Results           []Result        `json:"results"`
+	EvaluationSummary []MetricSummary `json:"evaluation_summary"`
 }
 
 type CredentialUpdate struct {

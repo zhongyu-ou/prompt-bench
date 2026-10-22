@@ -177,7 +177,7 @@ func (s *Store) credential(ref, env string, required bool, getenv func(string) s
 func (s *Store) credentialStatuses(st State, getenv func(string) string) map[string]CredentialStatus {
 	out := make(map[string]CredentialStatus, len(st.Providers))
 	for _, p := range st.Providers {
-		_, status, _ := s.credential(p.CredentialRef, p.APIKeyEnv, false, getenv)
+		_, status, _ := s.credential(p.CredentialRef, p.APIKeyEnv, p.Protocol == typesafeProtocol, getenv)
 		out[p.ID] = status
 	}
 	return out

@@ -1,5 +1,5 @@
 import { $, esc, uniqueId } from './utils.js';
-import { credentialMeta, groupRouteSummary, isKnownProtocol, providerById, templateById } from './model.js';
+import { credentialMeta, groupRouteSummary, isKnownProtocol, providerById, providersWithCapability, protocolSupports, templateById } from './model.js';
 import { App } from './state.js';
 import { ICON_EDIT } from './constants.js';
 
@@ -23,6 +23,7 @@ function renderGroupCards() {
     const tpl = templateById(g.template_id);
     const prov = providerById(g.provider_id);
     const missing = !tpl || !prov || !String(g.model || '').trim() || !prov.protocol || !isKnownProtocol(prov.protocol);
+    const wrongCapability = prov && prov.protocol && isKnownProtocol(prov.protocol) && !protocolSupports(prov.protocol, 'generation');
     const meta = prov ? credentialMeta(prov.id) : null;
     const credWarn = prov && meta && meta.requires_auth && !meta.available;
     return `
@@ -31,7 +32,7 @@ function renderGroupCards() {
           <input type="checkbox" data-group-enabled="${esc(g.id)}" ${g.enabled ? 'checked' : ''} aria-label="${esc(`启用对照配置 ${g.name || g.id}`)}">
         </label>
         <button type="button" class="group-main" data-group-select="${esc(g.id)}">
-          <span class="group-name">${esc(g.name || g.id)}${missing ? ' <span class="pill warn">待补全</span>' : ''}${credWarn ? ' <span class="pill warn">凭据不可用</span>' : ''}</span>
+          <span class="group-name">${esc(g.name || g.id)}${missing ? ' <span class="pill warn">待补全</span>' : ''}${wrongCapability ? ' <span class="pill warn">不可用于生成</span>' : ''}${credWarn ? ' <span class="pill warn">凭据不可用</span>' : ''}</span>
           <span class="group-meta">${esc(prov ? (prov.name || prov.id) : 'Provider 缺失')} · <span class="mono">${esc(g.model || '模型未填写')}</span> · 每 Case ${esc(String(g.runs))} 次</span>
           <span class="group-template">模板：${esc(tpl ? (tpl.name || tpl.id) : '模板缺失')}</span>
           <span class="group-routes">${groupRoutesHtml(g)}</span>
@@ -52,7 +53,7 @@ function nextGroupDefaults() {
     name: `配置 ${n}`,
     enabled: true,
     template_id: App.activeTemplateId || App.state.templates[0]?.id || '',
-    provider_id: App.state.providers[0]?.id || '',
+    provider_id: providersWithCapability('generation')[0]?.id || '',
     model: '',
     parameters: {},
     runs: App.state.settings.default_runs || 20,

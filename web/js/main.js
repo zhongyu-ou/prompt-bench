@@ -1,4 +1,4 @@
-import { caseEditorDirty, ensureSelections, groupEditorDirty, hasUnsavedWork, markEdit } from './model.js';
+import { caseEditorDirty, ensureSelections, groupEditorDirty, hasUnsavedWork, markEdit, metricEditorDirty } from './model.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { bindLibraryEvents, renderCollectionNav, renderLibrary } from './case-library.js';
 import { bindTemplateEvents, renderTemplateEditor, renderTemplateOptions } from './templates.js';
@@ -20,6 +20,7 @@ import { configureNavigation, setView } from './navigation.js';
 import { $ } from './utils.js';
 import { bindHistoryEvents } from './history.js';
 import { configureMutations } from './mutations.js';
+import { bindMetricEvents, renderMetricSelection, renderMetricsView } from './metrics.js';
 
 function renderAll() {
   ensureSelections();
@@ -34,6 +35,8 @@ function renderAll() {
   renderHistoryList();
   renderOutput();
   renderSelectionPanel();
+  renderMetricSelection();
+  renderMetricsView();
   renderLibrary();
   renderCaseEditor();
   renderIO();
@@ -90,6 +93,8 @@ function renderView(view) {
   } else if (view === 'history') {
     renderHistoryList();
     if (!App.runsLoaded) refreshRuns();
+  } else if (view === 'metrics') {
+    renderMetricsView();
   } else if (view === 'providers') {
     renderProviders();
   } else if (view === 'settings') {
@@ -104,11 +109,15 @@ function renderSavedState() {
   renderTemplateEditor();
   renderGroupCards();
   renderSettings();
+  renderMetricSelection();
+  renderMetricsView();
 }
 
 function renderCredentialState() {
   renderProviders();
   renderSelectionPanel();
+  renderMetricSelection();
+  renderMetricsView();
 }
 
 async function renderReloadedState() {
@@ -123,6 +132,8 @@ function renderMutatedState() {
   if (App.activeView === 'case-io') renderIO();
   if (App.activeView === 'group-editor') renderGroupEditor();
   renderSelectionPanel();
+  renderMetricSelection();
+  renderMetricsView();
   updateDirtyUI();
   refreshRunPlan();
   scheduleSelectionPreview(0);
@@ -145,6 +156,7 @@ function bindStaticEvents() {
   }
   try { setSidebarCollapsed(localStorage.getItem('sidebar-collapsed') === 'true'); } catch {}
   sidebarToggle.addEventListener('click', () => {
+    document.body.classList.add('sidebar-motion');
     const collapsed = !document.body.classList.contains('sidebar-collapsed');
     setSidebarCollapsed(collapsed);
     try { localStorage.setItem('sidebar-collapsed', String(collapsed)); } catch {}
@@ -190,7 +202,7 @@ function bindStaticEvents() {
   document.addEventListener('change', () => markEdit(), true);
 
   window.addEventListener('beforeunload', (e) => {
-    const editorDirty = caseEditorDirty() || groupEditorDirty();
+    const editorDirty = caseEditorDirty() || groupEditorDirty() || metricEditorDirty();
     if (hasUnsavedWork() || editorDirty) {
       e.preventDefault();
       e.returnValue = '';
@@ -214,6 +226,7 @@ function bindStaticEvents() {
   bindCaseEditorEvents();
   bindIOEvents();
   bindRunEvents();
+  bindMetricEvents();
 }
 
 configureNavigation(renderView);

@@ -19,6 +19,7 @@ type ProtocolInfo struct {
 	Roles              []string `json:"roles"`
 	ReservedParameters []string `json:"reserved_parameters"`
 	ParameterHints     []string `json:"parameter_hints"`
+	Capabilities       []string `json:"capabilities"`
 }
 type PreparedRequest struct {
 	Endpoint string
@@ -61,11 +62,16 @@ func protocolCatalog() []ProtocolInfo {
 	for _, p := range protocolAdapters {
 		out = append(out, p.Info())
 	}
+	out = append(out, ProtocolInfo{ID: typesafeProtocol, Name: "Typesafe SystemOne", BaseURLHint: "https://api.typesafe.ai/v1; /systemone is appended", CredentialHint: "Manual key overrides environment; authentication required", Roles: []string{}, ReservedParameters: []string{}, ParameterHints: []string{}, Capabilities: []string{"decision"}})
 	return out
 }
 func validateProvider(p Provider) error {
 	if p.APIKeyEnv != "" && !envName.MatchString(p.APIKeyEnv) {
 		return errors.New("invalid api_key_env")
+	}
+	if p.Protocol == typesafeProtocol {
+		_, err := typesafeEndpoint(p)
+		return err
 	}
 	adapter, err := lookupProtocol(p.Protocol)
 	if err != nil {
@@ -86,7 +92,7 @@ func validateParameters(parameters map[string]any, info ProtocolInfo) error {
 
 type openAIChat struct{}
 
-var openAIChatInfo = ProtocolInfo{ID: openAIChatProtocol, Name: "OpenAI Chat Completions", BaseURLHint: "Base URL ending in /v1; /chat/completions is appended", CredentialHint: "Manual key overrides environment; empty env plus no manual key explicitly permits anonymous requests", Roles: []string{"system", "developer", "user", "assistant"}, ReservedParameters: []string{"model", "messages", "stream"}, ParameterHints: []string{"temperature", "reasoning_effort"}}
+var openAIChatInfo = ProtocolInfo{ID: openAIChatProtocol, Name: "OpenAI Chat Completions", BaseURLHint: "Base URL ending in /v1; /chat/completions is appended", CredentialHint: "Manual key overrides environment; empty env plus no manual key explicitly permits anonymous requests", Roles: []string{"system", "developer", "user", "assistant"}, ReservedParameters: []string{"model", "messages", "stream"}, ParameterHints: []string{"temperature", "reasoning_effort"}, Capabilities: []string{"generation"}}
 
 func (openAIChat) Info() ProtocolInfo { return openAIChatInfo }
 func (openAIChat) endpoint(p Provider) (string, error) {

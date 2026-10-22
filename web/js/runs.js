@@ -34,6 +34,7 @@ async function startRun() {
     return;
   }
   App.loading = true;
+  App.stopConfirm = false;
   refreshRunPlan();
   App.outputFilter = { group: '', case: '', status: '' };
   App.lastFilterSignature = '';
@@ -45,6 +46,7 @@ async function startRun() {
       collection_ids: [...App.state.draft.collection_ids],
       excluded_case_ids: [...App.state.draft.excluded_case_ids],
       groups: App.state.draft.groups.filter((g) => g.enabled).map(clone),
+      metrics: App.state.draft.metrics.map(clone),
       concurrency: clampInt(App.state.settings.concurrency, 1, 20, 20),
       state_version: App.version
     };
@@ -86,6 +88,7 @@ async function loadRunIntoOutput(id) {
       startPolling();
     } else {
       stopPolling();
+      await refreshRuns({ quiet: true });
     }
   } catch (err) {
     showBanner(`载入运行 #${requested} 失败：${err.message}`, 'error');
@@ -125,7 +128,8 @@ async function pollCurrentRun() {
       await refreshRuns({ quiet: true });
       if (wasActive || App.batchSeenActive) {
         const summary = detail.batch;
-        toast(`批次 #${summary.id} ${statusLabel(summary.status)}：完成 ${summary.completed || 0}/${summary.total || 0}，失败 ${summary.failed || 0}`, summary.failed ? 'error' : 'ok', 5000);
+        const evalErrors = Number(summary.evaluation?.error) || 0;
+        toast(`批次 #${summary.id} ${statusLabel(summary.status)}：完成 ${summary.completed || 0}/${summary.total || 0}，失败 ${summary.failed || 0}${evalErrors ? `，评估错误 ${evalErrors}` : ''}`, summary.failed || evalErrors ? 'error' : 'ok', 5000);
         App.batchSeenActive = false;
       }
     }
@@ -139,17 +143,29 @@ async function pollCurrentRun() {
   }
 }
 
+function requestStopConfirmation() {
+  if (!App.currentDetail || !batchActive(App.currentDetail.batch)) return;
+  App.stopConfirm = true;
+  renderOutput();
+}
+
+function cancelStopConfirmation() {
+  App.stopConfirm = false;
+  renderOutput();
+}
+
 async function stopRun() {
   const detail = App.currentDetail;
   if (!detail || !batchActive(detail.batch)) return;
-  const btn = $('stop-btn');
+  const btn = $('stop-confirm-btn');
   btn.disabled = true;
   try {
     const summary = await apiPost(`/api/runs/${encodeURIComponent(detail.batch.id)}/stop`, {});
     if (App.currentDetail && App.currentDetail.batch.id === summary.id) App.currentDetail.batch = summary;
+    App.stopConfirm = false;
     renderOutput();
     refreshRunPlan();
-    toast('已请求停止：不再派发新请求，在途请求会完成。', 'ok');
+    toast('已请求停止：不再启动新生成或指标调用，在途调用收尾。', 'ok');
     startPolling();
   } catch (err) {
     showBanner(`停止失败：${err.message}`, 'error');
@@ -189,7 +205,9 @@ export function bindRunEvents() {
   $('reload-run-btn').addEventListener('click', () => {
     if (App.currentRunId) loadRunIntoOutput(App.currentRunId);
   });
-  $('stop-btn').addEventListener('click', stopRun);
+  $('stop-btn').addEventListener('click', requestStopConfirmation);
+  $('stop-cancel-btn').addEventListener('click', cancelStopConfirmation);
+  $('stop-confirm-btn').addEventListener('click', stopRun);
 }
 
 export { loadRunIntoOutput, refreshRuns, resumeActiveRun, startPolling, startRun };

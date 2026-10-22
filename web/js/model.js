@@ -44,6 +44,129 @@ function protocolById(id) {
   return App.providerProtocols.find((p) => p.id === id) || null;
 }
 
+function protocolCapabilities(protocolId) {
+  const proto = protocolById(protocolId);
+  if (!proto) return [];
+  if (Array.isArray(proto.capabilities) && proto.capabilities.length) return proto.capabilities;
+  if (proto.id === 'openai-chat-completions') return ['generation'];
+  if (proto.id === 'typesafe-systemone') return ['decision'];
+  return [];
+}
+
+function protocolSupports(protocolId, capability) {
+  return protocolCapabilities(protocolId).includes(capability);
+}
+
+function protocolCapabilityLabels(protocolId) {
+  return protocolCapabilities(protocolId).map((cap) => (cap === 'decision' ? '决策评估' : cap === 'generation' ? '文本生成' : cap));
+}
+
+function providerSupportsCapability(provider, capability) {
+  return !!provider && protocolSupports(provider.protocol, capability);
+}
+
+function providersWithCapability(capability) {
+  if (!App.state) return [];
+  return App.state.providers.filter((p) => providerSupportsCapability(p, capability));
+}
+
+function metricById(id) {
+  return App.state && Array.isArray(App.state.metrics)
+    ? App.state.metrics.find((m) => m.id === id) || null
+    : null;
+}
+
+function newMetricId() {
+  const ids = new Set(App.state && Array.isArray(App.state.metrics) ? App.state.metrics.map((m) => m.id) : []);
+  let id = '';
+  do {
+    id = `metric_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  } while (ids.has(id));
+  return id;
+}
+
+function normalizeMetric(input) {
+  const m = input && typeof input === 'object' && !Array.isArray(input) ? { ...input } : {};
+  m.id = typeof m.id === 'string' ? m.id : '';
+  m.name = typeof m.name === 'string' ? m.name : '';
+  m.kind = ['code', 'model'].includes(m.kind) ? m.kind : 'code';
+  m.return_type = ['boolean', 'number', 'classification'].includes(m.return_type) ? m.return_type : 'boolean';
+  m.rule = typeof m.rule === 'string' ? m.rule : '';
+  if (m.kind === 'code') {
+    m.code = typeof m.code === 'string' ? m.code : '';
+    delete m.provider_id;
+    delete m.model;
+    delete m.threshold;
+    delete m.levels;
+  } else {
+    delete m.code;
+    m.provider_id = typeof m.provider_id === 'string' ? m.provider_id : '';
+    m.model = typeof m.model === 'string' ? m.model : '';
+    if (m.return_type === 'boolean') {
+      m.threshold = m.threshold === null || m.threshold === undefined || m.threshold === ''
+        ? 0.5
+        : (Number.isFinite(Number(m.threshold)) ? Number(m.threshold) : 0.5);
+      delete m.levels;
+    } else {
+      delete m.threshold;
+      if (m.return_type === 'number') {
+        m.levels = Array.isArray(m.levels) ? m.levels.map((level) => (typeof level === 'string' ? level : String(level ?? ''))) : [];
+      } else {
+        delete m.levels;
+      }
+    }
+  }
+  if (m.return_type === 'classification') {
+    m.labels = Array.isArray(m.labels) ? m.labels.map((label) => ({
+      label: typeof label?.label === 'string' ? label.label : '',
+      description: typeof label?.description === 'string' ? label.description : ''
+    })) : [];
+  } else {
+    delete m.labels;
+  }
+  return m;
+}
+
+function normalizeMetricTarget(input) {
+  const t = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  return {
+    mode: t.mode === 'json_pointer' ? 'json_pointer' : 'output',
+    pointer: typeof t.pointer === 'string' ? t.pointer : ''
+  };
+}
+
+function metricTargetLabel(target) {
+  if (!target || target.mode === 'output') return '整段输出';
+  return target.pointer === '' ? 'JSON 根' : `JSON Pointer ${target.pointer}`;
+}
+
+function selectedMetricRefs() {
+  return App.state && Array.isArray(App.state.draft.metrics) ? App.state.draft.metrics : [];
+}
+
+function metricProviderIssue(metric) {
+  if (!metric || metric.kind !== 'model') return { error: '', warning: '' };
+  const provider = providerById(metric.provider_id);
+  if (!provider) return { error: '决策 Provider 不存在', warning: '' };
+  if (!provider.protocol) return { error: 'Provider 未设置协议', warning: '' };
+  if (!protocolById(provider.protocol)) return { error: 'Provider 协议未实现', warning: '' };
+  if (!protocolSupports(provider.protocol, 'decision')) return { error: 'Provider 不支持决策评估', warning: '' };
+  if (!String(metric.model || '').trim()) return { error: '未填写模型版本', warning: '' };
+  const pending = pendingCredentialFor(provider.id);
+  const meta = credentialMeta(provider.id);
+  if (pending && pending.kind === 'set') return { error: '', warning: '有待保存的手动密钥；保存后生效' };
+  if (pending && pending.kind === 'clear') {
+    return meta && meta.requires_auth && !meta.env_available
+      ? { error: '清除手动密钥后没有可用凭据', warning: '' }
+      : { error: '', warning: '待清除手动密钥，将回退环境变量/无认证' };
+  }
+  if (meta) {
+    if (meta.requires_auth && !meta.available) return { error: '凭据不可用', warning: '' };
+    return { error: '', warning: meta.requires_auth ? '' : '允许无认证请求' };
+  }
+  return { error: '', warning: '凭据状态尚未验证' };
+}
+
 function protocolLabel(id) {
   const p = protocolById(id);
   return p ? (p.name || p.id) : (id || '未设置协议');
@@ -160,6 +283,7 @@ function normalizeState(input) {
   s.collections = Array.isArray(s.collections) ? s.collections : [];
   s.templates = Array.isArray(s.templates) ? s.templates : [];
   s.providers = Array.isArray(s.providers) ? s.providers : [];
+  s.metrics = Array.isArray(s.metrics) ? s.metrics.map(normalizeMetric).filter((m) => m.id) : [];
   s.settings = s.settings && typeof s.settings === 'object' ? s.settings : {};
   s.settings.default_runs = clampInt(s.settings.default_runs, 1, 1000, 20);
   s.settings.concurrency = clampInt(s.settings.concurrency, 1, 20, 20);
@@ -170,6 +294,9 @@ function normalizeState(input) {
   s.draft.collection_ids = Array.isArray(s.draft.collection_ids) ? s.draft.collection_ids : [];
   s.draft.excluded_case_ids = Array.isArray(s.draft.excluded_case_ids) ? s.draft.excluded_case_ids : [];
   s.draft.groups = Array.isArray(s.draft.groups) ? s.draft.groups : [];
+  s.draft.metrics = Array.isArray(s.draft.metrics) ? s.draft.metrics
+    .filter((ref) => ref && typeof ref === 'object' && typeof ref.metric_id === 'string')
+    .map((ref) => ({ metric_id: ref.metric_id, target: normalizeMetricTarget(ref.target) })) : [];
   for (const c of s.cases) {
     if (!c.id) c.id = `case_${Math.random().toString(36).slice(2, 8)}`;
     c.variables = c.variables && typeof c.variables === 'object' && !Array.isArray(c.variables) ? c.variables : {};
@@ -260,4 +387,9 @@ function groupEditorDirty() {
   return !!App.groupEditor && stableStringify(App.groupEditor.working) !== App.groupEditor.baseline;
 }
 
-export { activeCase, activeGroup, activeMessage, activeTemplate, caseById, caseEditorDirty, collectionById, collectionsForCase, credentialMeta, ensureSelections, groupById, groupEditorDirty, groupRouteSummary, hasPendingCredentials, hasUnsavedWork, isDirty, isKnownProtocol, markEdit, newProviderId, normalizeCredentials, normalizeState, pendingCredentialFor, protocolById, protocolLabel, providerById, resolveGroupTargets, resolveSelection, selectedCaseIds, setEqual, templateById };
+function metricEditorDirty() {
+  return !!App.metricEditor && App.metricEditor.working
+    && stableStringify(App.metricEditor.working) !== App.metricEditor.baseline;
+}
+
+export { activeCase, activeGroup, activeMessage, activeTemplate, caseById, caseEditorDirty, collectionById, collectionsForCase, credentialMeta, ensureSelections, groupById, groupEditorDirty, groupRouteSummary, hasPendingCredentials, hasUnsavedWork, isDirty, isKnownProtocol, markEdit, metricById, metricEditorDirty, metricTargetLabel, metricProviderIssue, newMetricId, newProviderId, normalizeCredentials, normalizeMetric, normalizeMetricTarget, normalizeState, pendingCredentialFor, protocolById, protocolCapabilities, protocolCapabilityLabels, protocolLabel, protocolSupports, providerById, providerSupportsCapability, providersWithCapability, resolveGroupTargets, resolveSelection, selectedCaseIds, selectedMetricRefs, setEqual, templateById };

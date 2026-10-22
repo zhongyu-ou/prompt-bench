@@ -1,6 +1,6 @@
 import { $, esc } from './utils.js';
 import { App } from './state.js';
-import { credentialMeta, groupById, isKnownProtocol, markEdit, newProviderId, pendingCredentialFor, protocolById, providerById } from './model.js';
+import { credentialMeta, groupById, isKnownProtocol, markEdit, newProviderId, pendingCredentialFor, protocolById, protocolCapabilities, providerById } from './model.js';
 import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { providerProtocolTag } from './snapshot.js';
 import { ICON_EDIT, ICON_TRASH } from './constants.js';
@@ -35,6 +35,12 @@ function credentialSourceBadge(meta) {
     case 'missing': return { cls: 'missing', label: '缺少凭据' };
     default: return { cls: 'missing', label: '凭据状态未知' };
   }
+}
+
+function providerCapabilityHtml(p) {
+  const caps = protocolCapabilities(p.protocol);
+  if (!caps.length) return '<span class="capability-tag unknown">能力未知</span>';
+  return caps.map((cap) => `<span class="capability-tag ${esc(cap)}">${cap === 'decision' ? '决策评估' : cap === 'generation' ? '文本生成' : esc(cap)}</span>`).join('');
 }
 
 function providerCredentialCellHtml(p) {
@@ -76,7 +82,7 @@ function renderProviders() {
         <div>${esc(p.name || p.id)}${refs ? ` <span class="pill subtle">${refs} 配置</span>` : ''}</div>
         <div class="cred-meta">${esc(p.id)}</div>
       </td>
-      <td class="protocol-cell">${providerProtocolTag(p)}</td>
+      <td class="protocol-cell">${providerProtocolTag(p)}<div class="capability-tags">${providerCapabilityHtml(p)}</div></td>
       <td class="url-cell" title="${esc(p.base_url)}">${esc(p.base_url || '—')}</td>
       <td class="provider-credential-cell">${providerCredentialCellHtml(p)}</td>
       <td class="actions">
@@ -128,7 +134,8 @@ function updateProviderProtocolHint() {
   }
   typeHint.className = 'provider-type-hint';
   const roles = Array.isArray(proto.roles) && proto.roles.length ? ` · 角色 ${proto.roles.join(' / ')}` : '';
-  typeHint.textContent = `已实现协议：${proto.name || proto.id}${roles}`;
+  const caps = protocolCapabilities(proto.id).map((cap) => (cap === 'decision' ? '决策评估' : cap === 'generation' ? '文本生成' : cap));
+  typeHint.textContent = `已实现协议：${proto.name || proto.id}${caps.length ? ` · 能力 ${caps.join(' / ')}` : ''}${roles}`;
   baseHint.textContent = proto.base_url_hint || '实际请求 endpoint 由服务端按协议生成。';
   credNote.textContent = `${proto.credential_hint ? proto.credential_hint + '。' : ''}优先级：手动密钥 → 环境变量 → 无认证（仅当协议允许）。手动密钥由后端加密保存在本机数据目录；备份数据库时需一并备份 credentials.key。密钥不会进入浏览器存储、草稿 JSON、历史请求、快照或导出。`;
 }
@@ -330,7 +337,9 @@ function deleteProvider(id) {
   const p = providerById(id);
   if (!p) return;
   const refs = App.state.draft.groups.filter((g) => g.provider_id === id);
+  const metricRefs = App.state.metrics.filter((m) => m.kind === 'model' && m.provider_id === id);
   const extra = refs.length ? `\n\n草稿中引用它的 ${refs.length} 个对照配置也会被移除。` : '';
+  const metricExtra = metricRefs.length ? `\n\n引用它的 ${metricRefs.length} 个模型指标也会被删除，相关批次选择会一并移除。` : '';
   const meta = credentialMeta(id);
   const pending = pendingCredentialFor(id);
   const persisted = !!p.credential_ref;
@@ -340,11 +349,17 @@ function deleteProvider(id) {
   } else if (persisted && meta && meta.manual_set) {
     credentialNote = '\n\n该 Provider 已保存手动密钥；删除后加密凭据引用仍保留供历史批次复跑。若要移除，请先编辑并清除手动密钥，再删除。';
   }
-  if (!window.confirm(`删除 Provider「${p.name || p.id}」？${extra}${credentialNote}\n\n已保存的历史批次与冻结快照不受影响。`)) return;
+  if (!window.confirm(`删除 Provider「${p.name || p.id}」？${extra}${metricExtra}${credentialNote}\n\n已保存的历史批次与冻结快照不受影响。`)) return;
   App.state.providers = App.state.providers.filter((x) => x.id !== id);
   if (refs.length) {
     App.state.draft.groups = App.state.draft.groups.filter((g) => g.provider_id !== id);
     if (!groupById(App.activeGroupId)) App.activeGroupId = App.state.draft.groups[0]?.id || null;
+  }
+  if (metricRefs.length) {
+    const removed = new Set(metricRefs.map((m) => m.id));
+    App.state.metrics = App.state.metrics.filter((m) => !removed.has(m.id));
+    App.state.draft.metrics = App.state.draft.metrics.filter((ref) => !removed.has(ref.metric_id));
+    if (App.metricEditor && removed.has(App.metricEditor.id)) App.metricEditor = null;
   }
   if (!persisted) {
     App.credentialMutations.delete(id);

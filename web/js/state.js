@@ -24,6 +24,11 @@ const App = {
   historySelectedId: null,
   compareIds: new Set(),
   outputFilter: { group: '', case: '', status: '' },
+  outputMetricFilters: new Map(),
+  outputMetricFilterRunId: null,
+  outputPaging: { page: 1, pageSize: 20, signature: '' },
+  outputTab: 'results',
+  stopConfirm: false,
   outputScrollTop: 0,
   outputRenderRunId: null,
   snapshotRenderedFor: null,
@@ -71,6 +76,9 @@ const App = {
     exportIncludeMemberships: true
   },
   groupEditor: null,
+  metricEditor: null,
+  metricSearch: '',
+  metricTrial: { targetMode: 'output', pointer: '', input: '', result: null, error: '' },
   collectionDialog: { mode: 'create', id: null },
   joinCollection: { caseIds: [] },
   targetDialog: { routeIndex: -1 }

@@ -161,7 +161,7 @@ func TestCredentialValidationOwnershipAtomicityAndProtocolCatalog(t *testing.T) 
 	s := h.save(oneCase(fixtureState(provider.URL)))
 	var catalog []ProtocolInfo
 	h.api("GET", "/api/protocols", nil, 200, &catalog)
-	if len(catalog) != 1 || catalog[0].ID != openAIChatProtocol {
+	if len(catalog) != 2 || catalog[0].ID != openAIChatProtocol || catalog[1].ID != typesafeProtocol || len(catalog[0].Capabilities) != 1 || catalog[0].Capabilities[0] != "generation" || len(catalog[1].Capabilities) != 1 || catalog[1].Capabilities[0] != "decision" {
 		t.Fatal(catalog)
 	}
 	// Credential-only PUT still bumps version, and a stale render/freeze cannot mix old endpoint with a newly replaced key.

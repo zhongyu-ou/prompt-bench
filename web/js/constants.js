@@ -26,4 +26,18 @@ const PROHIBITED_VARIABLES = ['TargetLanguageNameMap'];
 
 const LANGUAGE_NAMES = { en: 'English', jp: 'Japanese', ja: 'Japanese', es: 'Spanish', zh: 'Chinese', 'zh-CN': 'Chinese (Simplified)', ko: 'Korean', fr: 'French', de: 'German' };
 
-export { ATTEMPT_STATUS, BATCH_STATUS, ICON_EDIT, ICON_TRASH, KNOWN_VARIABLES, LANGUAGE_NAMES, PROHIBITED_VARIABLES };
+const METRIC_KIND_LABELS = { code: '代码', model: '模型' };
+
+const METRIC_RETURN_LABELS = { boolean: '布尔', number: '数值', classification: '分类' };
+
+const EVALUATION_STATUS = {
+  pending: '待评估',
+  running: '评估中',
+  completed: '评估完成',
+  error: '评估错误',
+  skipped: '已跳过',
+  cancelled: '已取消',
+  interrupted: '结果未知'
+};
+
+export { ATTEMPT_STATUS, BATCH_STATUS, EVALUATION_STATUS, ICON_EDIT, ICON_TRASH, KNOWN_VARIABLES, LANGUAGE_NAMES, METRIC_KIND_LABELS, METRIC_RETURN_LABELS, PROHIBITED_VARIABLES };

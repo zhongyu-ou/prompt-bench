@@ -1,4 +1,4 @@
-import { caseById, collectionById, credentialMeta, hasUnsavedWork, isKnownProtocol, pendingCredentialFor, providerById, selectedCaseIds, templateById } from './model.js';
+import { caseById, collectionById, credentialMeta, hasUnsavedWork, isKnownProtocol, metricById, metricProviderIssue, pendingCredentialFor, protocolSupports, providerById, selectedCaseIds, selectedMetricRefs, templateById } from './model.js';
 import { App } from './state.js';
 import { $, batchActive, esc } from './utils.js';
 import { updateDirtyUI } from './shell-view.js';
@@ -44,6 +44,42 @@ function validateRoutes(routes) {
   return errors;
 }
 
+function validateMetricSelection() {
+  const errors = [];
+  const warnings = [];
+  const selected = [];
+  const seen = new Set();
+  let modelCount = 0;
+  for (const ref of selectedMetricRefs()) {
+    const metric = metricById(ref.metric_id);
+    const label = metric ? (metric.name || metric.id) : ref.metric_id;
+    if (!metric) {
+      errors.push(`所选指标「${label}」不存在，请重新选择。`);
+      continue;
+    }
+    if (seen.has(metric.id)) {
+      errors.push(`指标「${label}」被重复选择。`);
+      continue;
+    }
+    seen.add(metric.id);
+    const target = ref.target || { mode: 'output', pointer: '' };
+    if (target.mode === 'json_pointer' && target.pointer && !target.pointer.startsWith('/')) {
+      errors.push(`指标「${label}」的 JSON Pointer 必须以 / 开头；留空表示根对象。`);
+    }
+    if (target.mode === 'output' && target.pointer) {
+      errors.push(`指标「${label}」选择整段输出时不能带 JSON Pointer。`);
+    }
+    if (metric.kind === 'model') {
+      modelCount += 1;
+      const issue = metricProviderIssue(metric);
+      if (issue.error) errors.push(`模型指标「${label}」：${issue.error}。`);
+      if (issue.warning) warnings.push(`模型指标「${label}」：${issue.warning}。`);
+    }
+    selected.push({ ref, metric });
+  }
+  return { errors, warnings, selected, modelCount };
+}
+
 function computeRunPlan() {
   const errors = [];
   const warnings = [];
@@ -62,6 +98,7 @@ function computeRunPlan() {
       if (!prov.protocol) errors.push(`Provider「${prov.name || prov.id}」未设置协议。`);
       else if (!App.providerProtocolsLoaded) errors.push('Provider 协议目录未加载，无法验证协议；请刷新后重试。');
       else if (!isKnownProtocol(prov.protocol)) errors.push(`Provider「${prov.name || prov.id}」使用的协议「${prov.protocol}」未实现，无法运行。`);
+      else if (!protocolSupports(prov.protocol, 'generation')) errors.push(`Provider「${prov.name || prov.id}」不支持文本生成，不能用于对照组。`);
       if (!/^https?:\/\//i.test(prov.base_url || '')) errors.push(`Provider「${prov.name || prov.id}」的 Base URL 无效。`);
       const pending = pendingCredentialFor(prov.id);
       const meta = credentialMeta(prov.id);
@@ -97,17 +134,25 @@ function computeRunPlan() {
   const unknownExcluded = App.state.draft.excluded_case_ids.filter((id) => !caseById(id));
   if (unknownExcluded.length) errors.push(`临时排除包含不存在的 Case：${unknownExcluded.join(', ')}。`);
   if (!enabledGroups.length) errors.push('没有启用任何对照配置。');
+  const metricPlan = validateMetricSelection();
+  errors.push(...metricPlan.errors);
+  warnings.push(...metricPlan.warnings);
   const total = cases.length * runsPerCase;
   if (total > 100000) errors.push(`总请求数 ${total} 超过单批次上限 100000。`);
+  const maxModelCalls = total * metricPlan.modelCount;
   for (const err of validateSettings(App.state.settings)) errors.push(err);
   for (const err of App.settingsError) if (!errors.includes(err)) errors.push(err);
   if (hasKnownActiveBatch()) warnings.push('已有批次正在运行；同一时间只允许一个批次，启动按钮已禁用。');
-  return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency };
+  return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency, metrics: metricPlan.selected, modelCount: metricPlan.modelCount, maxModelCalls };
 }
 
 function hasKnownActiveBatch() {
-  if (App.runs.some(batchActive)) return true;
-  if (App.currentDetail && batchActive(App.currentDetail.batch)) return true;
+  const current = App.currentDetail?.batch;
+  if (current && batchActive(current)) return true;
+  for (const run of App.runs) {
+    if (current && run.id === current.id) continue;
+    if (batchActive(run)) return true;
+  }
   return false;
 }
 
@@ -145,4 +190,4 @@ function renderRunValidation(plan) {
   el.hidden = !lines.length;
 }
 
-export { computeRunPlan, hasKnownActiveBatch, refreshRunPlan, validateRoutes, validateSettings };
+export { computeRunPlan, hasKnownActiveBatch, refreshRunPlan, validateMetricSelection, validateRoutes, validateSettings };

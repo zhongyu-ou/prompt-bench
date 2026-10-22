@@ -21,6 +21,7 @@ function snapshotHtml(snapshot) {
   const groups = Array.isArray(snapshot.groups) ? snapshot.groups : [];
   const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
   const requests = Array.isArray(snapshot.requests) ? snapshot.requests : [];
+  const metrics = Array.isArray(snapshot.metrics) ? snapshot.metrics : [];
   return `
     <div class="batch-snapshot">
       <div class="snapshot-section">
@@ -32,9 +33,20 @@ function snapshotHtml(snapshot) {
           <div class="snapshot-chip"><div class="name">Provider</div><div class="meta">${providers.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">对照配置</div><div class="meta">${groups.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">共享集合</div><div class="meta">${collections.length} 个</div></div>
+          <div class="snapshot-chip"><div class="name">评估指标</div><div class="meta">${metrics.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">冻结请求</div><div class="meta">${requests.length} 个渲染请求</div></div>
         </div>
       </div>
+      ${metrics.length ? `<div class="snapshot-section">
+        <h3>评估指标</h3>
+        ${snapshotChips(metrics, (entry) => {
+          const m = entry.metric || {};
+          const target = entry.target || { mode: 'output' };
+          const targetLabel = target.mode === 'json_pointer' ? `JSON Pointer ${target.pointer === '' ? '（根）' : target.pointer}` : '整段输出';
+          return `<div class="snapshot-chip"><div class="name">${esc(m.name || m.id)}</div><div class="meta">${esc(m.kind === 'model' ? '模型' : '代码')} · ${esc(m.return_type || '')}<br>${esc(targetLabel)}${entry.provider ? `<br>${esc(entry.provider.name || entry.provider.id)} · ${esc(m.model || '')}` : ''}</div></div>`;
+        })}
+        ${snapshotJsonDetails('查看完整 metrics JSON', metrics)}
+      </div>` : ''}
       ${collections.length ? `<div class="snapshot-section">
         <h3>本次共享集合</h3>
         ${snapshotChips(collections, (c) => `<div class="snapshot-chip"><div class="name">${esc(c.name || c.id)}</div><div class="meta">${esc(c.id)} · ${esc(String((c.case_ids || []).length))} 个成员</div></div>`)}

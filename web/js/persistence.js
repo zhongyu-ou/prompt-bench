@@ -33,6 +33,7 @@ function editableStateSnapshot() {
   return {
     templates: clone(App.state.templates),
     providers: clone(App.state.providers),
+    metrics: clone(App.state.metrics),
     settings: clone(App.state.settings),
     draft: clone(App.state.draft)
   };
@@ -70,6 +71,7 @@ async function saveState({ silent = false } = {}) {
     version: App.version,
     templates: editable.templates,
     providers: editable.providers,
+    metrics: editable.metrics,
     settings: editable.settings,
     draft: editable.draft
   };
@@ -148,6 +150,8 @@ async function reloadFromServer() {
     await loadState();
     App.caseEditor = null;
     App.groupEditor = null;
+    App.metricEditor = null;
+    App.metricTrial = { targetMode: 'output', pointer: '', input: '', result: null, error: '' };
     App.io.preview = null;
     hideBanner();
     await renderReloadedState();

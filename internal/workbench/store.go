@@ -125,6 +125,12 @@ func (s *Store) state() (State, error) {
 	if err == nil {
 		err = decodeStored(b, &st)
 	}
+	if st.Metrics == nil {
+		st.Metrics = []Metric{}
+	}
+	if st.Draft.Metrics == nil {
+		st.Draft.Metrics = []MetricSelection{}
+	}
 	return st, err
 }
 func (s *Store) saveState(st State, updates map[string]CredentialUpdate) (State, error) {
@@ -320,6 +326,7 @@ func (s *Store) detail(id string) (Detail, error) {
 		}
 		d.Results = append(d.Results, r)
 	}
+	d.EvaluationSummary = evaluationSummary(d)
 	return d, rows.Err()
 }
 func (s *Store) interrupt() error {
@@ -337,12 +344,31 @@ func (s *Store) interrupt() error {
 		}
 		changed := []Result{}
 		for _, r := range d.Results {
+			modified := false
 			if r.Status == "running" || r.Status == "pending" {
 				r.Status = "interrupted"
 				r.Error = "server restarted; request may have been sent, outcome unknown; not resent"
 				r.FinishedAt = now()
-				changed = append(changed, r)
 				batch.Interrupted++
+				modified = true
+			}
+			for i := range r.Evaluations {
+				o := &r.Evaluations[i]
+				if o.Status == "pending" || o.Status == "running" {
+					if o.Status == "pending" {
+						batch.Evaluation.Pending--
+					} else {
+						batch.Evaluation.Running--
+					}
+					o.Status = "interrupted"
+					o.Error = "server restarted; metric may have been sent, outcome unknown; not resent"
+					o.FinishedAt = now()
+					batch.Evaluation.Interrupted++
+					modified = true
+				}
+			}
+			if modified {
+				changed = append(changed, r)
 			}
 		}
 		batch.Status = "interrupted"

@@ -94,6 +94,18 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 		}
 		f.RequiresAuth = f.RequiresAuth || key != ""
 	}
+	for i := range snapshot.Metrics {
+		f := &snapshot.Metrics[i]
+		if err := validateMetric(f.Metric); err != nil { return Batch{}, err }
+		if err := validateMetricTarget(f.Target); err != nil { return Batch{}, err }
+		if f.Metric.Kind != "model" { continue }
+		if f.Provider == nil || f.Provider.Protocol != typesafeProtocol || f.Provider.CredentialRef == "" { return Batch{}, errors.New("snapshot decision provider is missing") }
+		if _, err := typesafeEndpoint(*f.Provider); err != nil { return Batch{}, err }
+		key, _, err := e.store.credential(f.Provider.CredentialRef, f.Provider.APIKeyEnv, true, e.getenv)
+		if err != nil { return Batch{}, fmt.Errorf("metric %s: %w", f.Metric.Name, err) }
+		keys[f.Provider.CredentialRef] = key
+		f.RequiresAuth = true
+	}
 	if strings.TrimSpace(name) == "" {
 		name = "Comparison"
 	}
@@ -118,6 +130,14 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 		}
 	}
 	d.Batch.Total = len(d.Results)
+	for i := range d.Results {
+		for _, f := range snapshot.Metrics {
+			d.Results[i].Evaluations = append(d.Results[i].Evaluations, MetricOutcome{MetricID: f.Metric.ID, Status: "pending"})
+			d.Batch.Evaluation.Total++
+			d.Batch.Evaluation.Pending++
+			if f.Metric.Kind == "model" { d.Batch.MaxModelCalls++ }
+		}
+	}
 	if d.Batch.Total == 0 {
 		return Batch{}, errors.New("snapshot has no requests")
 	}
@@ -162,31 +182,29 @@ func (e *Engine) worker(a *activeBatch) {
 		r = e.call(r, f, key, timeout)
 		e.mu.Lock()
 		a.detail.Batch.InFlight--
-		if r.Status == "completed" {
-			a.detail.Batch.Completed++
-		} else {
-			a.detail.Batch.Failed++
-		}
+		if r.Status == "completed" { a.detail.Batch.Completed++ } else { a.detail.Batch.Failed++ }
+		a.detail.Results[idx] = r
 		e.finish(a)
-		if err := e.store.update(a.detail.Batch, r); err != nil {
-			e.fatal = err
-		}
+		if err := e.store.update(a.detail.Batch, r); err != nil { e.fatal = err }
+		e.mu.Unlock()
+		r = e.evaluateResult(a, idx, r, f)
+		e.mu.Lock()
+		e.finish(a)
+		if err := e.store.update(a.detail.Batch, r); err != nil { e.fatal = err }
 		// Completed payloads live in SQLite, not a second in-memory history.
 		a.detail.Results[idx] = Result{}
-		if a.detail.Batch.InFlight == 0 && a.detail.Batch.FinishedAt != "" {
-			e.active = nil
-		}
+		if a.detail.Batch.FinishedAt != "" { e.active = nil }
 		e.mu.Unlock()
 	}
 }
 func (e *Engine) finish(a *activeBatch) {
 	b := &a.detail.Batch
-	if b.Completed+b.Failed+b.Cancelled == b.Total && b.InFlight == 0 {
+	if b.Completed+b.Failed+b.Cancelled == b.Total && b.InFlight == 0 && b.Evaluation.Pending == 0 && b.Evaluation.Running == 0 {
 		b.FinishedAt = now()
 		switch {
 		case a.stopped:
 			b.Status = "stopped"
-		case b.Failed > 0:
+		case b.Failed > 0 || b.Evaluation.Error > 0:
 			b.Status = "completed_with_errors"
 		default:
 			b.Status = "completed"
@@ -209,6 +227,12 @@ func (e *Engine) stop(id string) (Batch, error) {
 		r.Status = "cancelled"
 		r.FinishedAt = now()
 		r.Error = "stopped before dispatch"
+		for j := range r.Evaluations {
+			r.Evaluations[j].Status = "cancelled"
+			r.Evaluations[j].FinishedAt = now()
+			a.detail.Batch.Evaluation.Pending--
+			a.detail.Batch.Evaluation.Cancelled++
+		}
 		a.detail.Results[i] = r
 		changed = append(changed, r)
 		a.detail.Batch.Cancelled++
@@ -219,7 +243,7 @@ func (e *Engine) stop(id string) (Batch, error) {
 		e.fatal = err
 		return Batch{}, err
 	}
-	if a.detail.Batch.InFlight == 0 {
+	if a.detail.Batch.FinishedAt != "" {
 		e.active = nil
 	}
 	return a.detail.Batch, nil

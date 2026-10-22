@@ -87,7 +87,7 @@ function renderHistoryDetail(detail) {
         <div class="result-list detail-results"></div>
       </section>
     </div>`;
-  renderResultBrowser(el.querySelector('.detail-results'), results);
+  renderResultBrowser(el.querySelector('.detail-results'), results, '没有结果记录。', detail);
 }
 
 export { renderHistoryDetail, renderHistoryList, updateCompareButton };

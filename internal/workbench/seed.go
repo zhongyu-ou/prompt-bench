@@ -20,12 +20,14 @@ func seedState() (State, error) {
 		cases[i].Variables["ReplacementMap"] = ""
 		ids = append(ids, cases[i].ID)
 	}
-	s := State{Version: 1, Cases: cases, Collections: []Collection{}, Templates: []Template{{ID: "asr", Name: "ASR proofreader · Go template", Messages: []Message{{Role: "user", Content: seedTemplate}}}}, Providers: []Provider{{ID: "luna", Name: "Luna", BaseURL: "https://polyglot-jpe-prod.openai.azure.com/openai/v1", APIKeyEnv: "AZURE_OPENAI_API_KEY"}, {ID: "4o", Name: "GPT-4o", BaseURL: "https://dev-openai-rtc.openai.azure.com/openai/v1", APIKeyEnv: "AZURE_OPENAI_4O_KEY"}}, Settings: Settings{DefaultRuns: 20, Concurrency: 20, TimeoutSeconds: 120}, Draft: Draft{Name: "ASR comparison", CaseIDs: ids, Groups: []Group{{ID: "luna", Name: "Luna · none", Enabled: true, TemplateID: "asr", ProviderID: "luna", Model: "gpt-6-luna", Parameters: map[string]any{"reasoning_effort": "none"}, Runs: 20}, {ID: "4o", Name: "GPT-4o", Enabled: true, TemplateID: "asr", ProviderID: "4o", Model: "gpt-4o", Parameters: map[string]any{}, Runs: 20}}}}
+	s := State{Version: 1, Cases: cases, Collections: []Collection{}, Templates: []Template{{ID: "asr", Name: "ASR proofreader · Go template", Messages: []Message{{Role: "user", Content: seedTemplate}}}}, Providers: []Provider{{ID: "luna", Name: "Luna", BaseURL: "https://polyglot-jpe-prod.openai.azure.com/openai/v1", APIKeyEnv: "AZURE_OPENAI_API_KEY"}, {ID: "4o", Name: "GPT-4o", BaseURL: "https://dev-openai-rtc.openai.azure.com/openai/v1", APIKeyEnv: "AZURE_OPENAI_4O_KEY"}, {ID: "typesafe", Name: "Typesafe", BaseURL: "https://api.typesafe.ai/v1", APIKeyEnv: "TYPESAFE_API_KEY", Protocol: typesafeProtocol}}, Settings: Settings{DefaultRuns: 20, Concurrency: 20, TimeoutSeconds: 120}, Draft: Draft{Name: "ASR comparison", CaseIDs: ids, Groups: []Group{{ID: "luna", Name: "Luna · none", Enabled: true, TemplateID: "asr", ProviderID: "luna", Model: "gpt-6-luna", Parameters: map[string]any{"reasoning_effort": "none"}, Runs: 20}, {ID: "4o", Name: "GPT-4o", Enabled: true, TemplateID: "asr", ProviderID: "4o", Model: "gpt-4o", Parameters: map[string]any{}, Runs: 20}}}}
 	for i := range s.Draft.Groups {
 		s.Draft.Groups[i].LanguageRoutes = []LanguageRoute{{SourceLanguage: "zh-CN", Targets: []Target{{Key: "en", Name: "English"}}}}
 	}
 	for i := range s.Providers {
-		s.Providers[i].Protocol = openAIChatProtocol
+		if s.Providers[i].Protocol == "" {
+			s.Providers[i].Protocol = openAIChatProtocol
+		}
 		s.Providers[i].CredentialRef = "cred_" + newID()
 	}
 	return s, validateState(s)

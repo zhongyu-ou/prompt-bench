@@ -87,3 +87,11 @@ The credential/protocol build passed independent race tests and rebuild comparis
 - Local fixture behavior does not establish real model access or quality. Only the OpenAI Chat Completions adapter was implemented; no Anthropic/Gemini adapter is claimed.
 - The relay browser did not expose actual OS download-manager/file events. The export endpoint, attachment headers and content were verified, not a file appearing in the user's download directory.
 - Error/conflict/delay interceptions test UI handling; they are not evidence of naturally occurring upstream failures. Mutating flows ran only in isolated data directories; user-service acceptance was read-only.
+
+## Sidebar collapse/expand motion — 2026-10-22
+
+- Reference: user-supplied `PixPin_2026-10-22_11-11-34.mp4`. Desktop now interpolates the sidebar grid track and main-content offset together over 240ms with easing. Navigation icons keep a fixed horizontal anchor; labels fade and clip without wrapping. No animation library or layout timers were added.
+- Transitions activate only after a user toggle, so restoring the persisted collapsed preference does not animate on initial load. Existing aria-expanded, named icon navigation and localStorage behavior remain. `prefers-reduced-motion: reduce` disables transitions; the existing mobile full hide/show behavior is retained.
+- Verification: `node --check web/js/main.js` and embedded Go build passed. Real managed Chromium on isolated `127.0.0.1:8794` at 1440×950 sampled actual animation frames: sidebar/main moved together from 266px through 235/182/142/114px to 64px; icon left stayed 23px, and label opacity decreased to zero.
+- Reversing during expansion preserved the measured current width (234.90625px before/after reversal), then settled at 64px. Reload restored 64px, aria-expanded=false and no animation-enabled class. Reduced-motion toggle immediately reached 266px with zero running grid animations. At 640px, collapsed/expanded display remained none/flex and no document horizontal overflow occurred. Browser runtime errors were empty; no live configuration or upstream calls were involved.
+- [Recorded implementation animation](ui/evaluation-implementation/sidebar-motion.webm) (1.61s, 26 frames). This is an isolated fixture UI recording, not a capture of the user's service.

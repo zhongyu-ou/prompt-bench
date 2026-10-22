@@ -69,3 +69,171 @@ Schema2→3 Case migration first archives exact pre-upgrade state bytes privatel
 Startup exclusively locks data directory before migration/recovery; another process fails without mutating live work. CLI binds loopback first. Unfinished pending/running attempts become interrupted/unknown, never automatically resent (they may already be billed). SQLite is durable history, not browser storage.
 
 `GET /api/health` -> `{ "status":"ok" }`.
+
+## Evaluation metrics
+
+Metrics are reusable execution configuration, owned by the existing optimistic
+`PUT /api/state` transaction. `GET /api/state` includes `metrics:[]` and
+`draft.metrics:[]` (also for old databases). Supply the full editable state with
+its current `version`; explicit `metrics:[]` deletes all metrics, while an omitted
+metrics field preserves it. Cases and collections remain dedicated resources.
+IDs are client-created opaque IDs, unique within metrics. Deleting referenced
+metrics/providers requires updating draft selections/metric references atomically.
+
+```json
+{
+  "metrics":[
+    {"id":"han","name":"Chinese characters","kind":"code","return_type":"boolean","rule":"Detect Chinese characters in the selected target","code":"function evaluate(input) { return {value: /[\\u4e00-\\u9fff]/u.test(input.target)}; }"},
+    {"id":"greeting","name":"Greeting","kind":"model","return_type":"boolean","rule":"Is input.target a greeting?","provider_id":"typesafe","model":"jev-1.13","threshold":0.5}
+  ],
+  "draft":{"metrics":[{"metric_id":"han","target":{"mode":"json_pointer","pointer":"/en"}}]}
+}
+```
+
+The snippet illustrates the new fields, not a complete state write. `kind` is
+`code` or `model`; `return_type` is `boolean`, `number`, or `classification`.
+Every metric needs ID/name; code metrics need `code`, and model metrics need
+`rule,provider_id,model`. Rules and code are each limited to 64 KiB. Classification
+uses `labels:[{label,description}]`: 2–100 unique nonblank labels, at most 256
+bytes each; model labels need nonblank descriptions. Model numbers use
+`levels:["lowest description", "...", "highest description"]`, 2–10 nonblank
+ordered descriptions. Model booleans optionally configure finite `threshold`
+in `[0,1]`, default `0.5`; `value` is strictly `noul > threshold`. Code numbers
+are finite numbers, not normalized scores; booleans carry no pass/fail semantics.
+
+Protocol catalog entries expose `capabilities:["generation"]` or `["decision"]`.
+`typesafe-systemone` is decision-only, with provider base URL
+`https://api.typesafe.ai/v1` (`/systemone` appended). It uses the same
+`api_key_env,credential_ref,credential_updates` and manual-over-env precedence as
+generation providers, but always requires authentication. It is rejected in
+generation groups, including preview and manually submitted run requests. No
+automatic model discovery or paid call occurs when saving configuration.
+
+### Frozen selection and shared input
+
+`POST /api/runs` adds `metrics`, the same selection array as `draft.metrics`.
+Selection is batch-wide, ordered, and unique by metric ID. Each selection has
+`target:{mode:"output"}` for the exact output string, or
+`target:{mode:"json_pointer",pointer:"/en"}` for RFC 6901 extraction. An empty
+pointer means the JSON root. `~0`/`~1` escapes and canonical array indices are
+supported; no URI-fragment pointers, Markdown stripping, key guessing, string
+coercion, or missing-field fallback. Invalid JSON/missing fields produce a
+separate metric error without discarding the output or other metrics.
+
+Snapshot `metrics` contains `{metric:<full frozen rule>,target,provider?,requires_auth?}`.
+The decision provider is frozen without secrets, including its credential
+reference, original env name, URL/protocol and model. The UI initializes a new
+model metric with `jev-latest`, but the API requires the version explicitly.
+The model field is an alias string sent unchanged; each outcome also records the
+provider's resolved `response_model`. Replay sends the frozen alias again rather
+than pinning that resolved identity, so a moved alias may resolve differently.
+All selected decision
+credentials are resolved before **any** generation is sent, under the existing
+state/credential synchronization lock. In-flight runs retain resolved keys;
+future replay resolves current credentials against frozen references.
+
+Code runtime input and shared evaluation context are shown below. Model transport
+uses the same selected target and context but deliberately omits `output` (see
+Native Typesafe evidence); this is not an identical model wire payload.
+```json
+{
+  "case":{"id":"opaque","variables":{"CurrentText":"synthetic example","SourceLanguage":"zh"}},
+  "output":"{\"corrected_text\":\"原文\",\"en\":\"Hello\"}",
+  "target":"Hello",
+  "language_resolution":{"source_language":"zh","targets":[{"key":"en","name":"English"}],"used_default":false},
+  "group":{"id":"g","name":"Example","model":"generation-model"},
+  "iteration":1
+}
+```
+
+`case` is frozen input, `output` is the complete generation output, and `target`
+is extracted by the backend, retaining its JSON type. No credentials enter this
+object. Maximum encoded input is 1 MiB. Do not assume a string target unless the
+selected field actually contains one.
+
+### Code function and local trial
+
+Code defines the synchronous function `evaluate(input)` and returns an object
+`{value,reason?}`. `value` must exactly match the declared type; classification
+must exactly match a declared label. `reason`, if present, is a string.
+Promises, undefined, NaN/Infinity and non-JSON return values are invalid.
+Each call runs in a fresh `modernc.org/quickjs v0.24.2` VM, with a 16 MiB engine
+heap limit and 200 ms execution limit, no host bridges or module loader.
+There is no file/network/process/environment API. Encoded return data is limited
+to 64 KiB. The heap limit covers the engine allocator, not total process RSS;
+these bounds are defense-in-depth, not a formal security certification.
+
+`POST /api/metrics/trial` accepts:
+```json
+{"metric":{"id":"trial","name":"Trial","kind":"code","return_type":"boolean","code":"function evaluate(input){return {value: input.target === 'Hello'}}"},"target":{"mode":"json_pointer","pointer":"/en"},"input":{"case":{"id":"synthetic","variables":{}},"output":"{\"en\":\"Hello\"}","group":{"id":"example","name":"Example","model":"synthetic"},"iteration":1}}
+```
+The backend fills/overwrites `input.target` using the same extraction rules.
+No state write or provider call occurs. Config/target syntax errors are HTTP400;
+execution/extraction errors are HTTP200 with a normal `MetricOutcome` carrying
+`status:"error"` and `error`. Success is HTTP200 with `status:"completed"`.
+The trial never automatically reads real Cases. A copied AI script-generation
+prompt should contain the selected rule, exact function/input/output contract,
+declared labels/type and runtime bounds above, using only synthetic examples;
+it must not silently copy real Case data or credentials.
+
+### Native Typesafe evidence
+
+The REST request is `{model,state,questions:{metric:{type,instructions,criteria?}}}`.
+Its state contains `target,case,language_resolution,group,iteration`, deliberately
+omitting the complete `output` so unrelated output fields cannot be alternate
+targets. Fixed instructions require judging **only** `state.target`; the remaining
+fields are context. This makes transport unambiguous, not a guarantee of model
+semantic compliance.
+Boolean uses `type:"noul"`; number uses `type:"score",criteria:<levels>` and
+retains its native fractional range `0..N-1`; classification uses
+`type:"choice",criteria:{label:description}`. Response model, raw response,
+Noul probability, probability distribution, confidence and legend are preserved
+when returned. Numeric values, probabilities and choices are validated.
+Confidence is not accuracy, and no model reason is invented. JEV is not an
+exact counting/arithmetic substitute. One metric makes at most one request;
+there are no redirects or automatic retries. Responses are bounded to 1 MiB,
+and failure preserves the redacted captured prefix. See the official
+[API](https://docs.typesafe.ai/api/system-one.md),
+[Noul](https://docs.typesafe.ai/primitives/noul.md),
+[Score](https://docs.typesafe.ai/primitives/score.md) and
+[Choice](https://docs.typesafe.ai/primitives/choice.md) contracts.
+
+### Results, progress and lifecycle
+
+Each result immediately contains ordered `evaluations` matching the frozen
+selection. Outcome fields are `metric_id,status,value?,reason?,error?,
+started_at?,finished_at?,duration_ms?,response_model?,raw_response?,http_status?,
+noul?,probabilities?,confidence?,legend?`. Status is `pending,running,completed,
+error,skipped,cancelled,interrupted`. `reason` is code-only. Generation status
+and counters remain independent: a successful generation remains `completed`
+even when an evaluation errors.
+
+Batch summaries in both history list and detail include
+`evaluation:{total,pending,running,completed,error,skipped,cancelled,interrupted}`
+and `max_model_calls` (generation attempts × selected model metrics). This
+upper bound is visible before dispatch from selection counts and also frozen
+on creation; failed generations reduce actual decision calls. Generations and
+metrics share the configured global 1–20 worker cap; workers sequentially run
+generation then its metrics. The batch remains active until all steps settle.
+Any metric error makes the final batch `completed_with_errors`, without stopping
+independent work. Failed generation skips its content metrics.
+
+Detail/export adds `evaluation_summary`, one row per metric for `group_id:""`
+(all groups), plus one per metric/group. Rows contain `metric_id,group_id,valid,
+true_count,false_count,mean?,min?,max?,labels,error,skipped,cancelled,interrupted,
+pending,running`. Only completed evaluations enter valid denominators and value
+statistics. Empty numeric samples omit mean/min/max. Classification labels
+include declared zero counts. No implicit pass rate is computed.
+
+Stop starts no more generation/metric calls; already issued calls finish and
+persist, and remaining metrics are cancelled. Browser closure does not stop the
+server job. Restart marks unfinished generation and metric steps independently
+interrupted, never resends, and preserves already completed generation/output
+and metric evidence. Existing replay creates a new generation+evaluation batch
+using the complete immutable snapshot, even after source edits/deletion; there
+is no historical-only re-evaluation endpoint.
+
+Evaluation data uses additive fields in the existing durable JSON blobs. No
+completed historical blobs are rewritten, no old Case migration/archive behavior
+changes, and databases/backups without metrics remain readable/replayable. Old
+history has no evaluation outcomes and zero evaluation progress.

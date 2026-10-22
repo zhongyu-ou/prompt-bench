@@ -1,8 +1,8 @@
 import { App } from './state.js';
-import { caseEditorDirty, groupEditorDirty } from './model.js';
+import { caseEditorDirty, groupEditorDirty, metricEditorDirty } from './model.js';
 
 function setView(view, { force = false } = {}) {
-  if (!['workbench', 'cases', 'case-editor', 'case-io', 'group-editor', 'history', 'providers', 'settings'].includes(view)) return;
+  if (!['workbench', 'cases', 'case-editor', 'case-io', 'group-editor', 'history', 'metrics', 'providers', 'settings'].includes(view)) return;
   if (App.mutating && !force) return;
   if (view === App.activeView) return;
   if (!force && App.activeView === 'case-editor' && view !== 'case-editor' && caseEditorDirty()) {
@@ -12,6 +12,10 @@ function setView(view, { force = false } = {}) {
   if (!force && App.activeView === 'group-editor' && view !== 'group-editor' && groupEditorDirty()) {
     if (!window.confirm('对照配置编辑器中还有未保存的更改。放弃并离开？')) return;
     App.groupEditor = null;
+  }
+  if (!force && App.activeView === 'metrics' && view !== 'metrics' && metricEditorDirty()) {
+    if (!window.confirm('指标编辑器中还有未保存的更改。放弃并离开？')) return;
+    App.metricEditor = null;
   }
   App.activeView = view;
   document.querySelectorAll('.view').forEach((el) => {

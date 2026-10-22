@@ -17,6 +17,7 @@ function viewCrumb() {
       return `${base} / 工作台 / ${g ? (g.name || '配置') : '新配置'}`;
     }
     case 'history': return `${base} / 运行记录`;
+    case 'metrics': return `${base} / 指标`;
     case 'providers': return `${base} / Providers`;
     case 'settings': return `${base} / 全局设置`;
     default: return `${base} / 工作台`;

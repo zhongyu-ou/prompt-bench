@@ -106,6 +106,30 @@ func validateState(s State) error {
 			return err
 		}
 	}
+	metricIDs := map[string]bool{}
+	for _, m := range s.Metrics {
+		if metricIDs[m.ID] {
+			return fmt.Errorf("metric ids must be unique")
+		}
+		metricIDs[m.ID] = true
+		if err := validateMetric(m); err != nil {
+			return err
+		}
+		if m.Kind == "model" {
+			found := false
+			for _, p := range s.Providers {
+				if p.ID == m.ProviderID && p.Protocol == typesafeProtocol {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("model metric requires a decision-capable provider")
+			}
+		}
+	}
+	if _, err := freezeMetrics(s, s.Draft.Metrics); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, id := range s.Draft.CaseIDs {
 		if !cases[id] || seen[id] {
@@ -123,7 +147,10 @@ func validateState(s State) error {
 		}
 		for _, p := range s.Providers {
 			if p.ID == g.ProviderID {
-				adapter, _ := lookupProtocol(p.Protocol)
+				adapter, err := lookupProtocol(p.Protocol)
+				if err != nil {
+					return fmt.Errorf("generation group requires a generation-capable provider")
+				}
 				if err := validateParameters(g.Parameters, adapter.Info()); err != nil {
 					return err
 				}
@@ -287,5 +314,10 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 			snap.Providers = append(snap.Providers, p)
 		}
 	}
+	metrics, err := freezeMetrics(s, in.Metrics)
+	if err != nil {
+		return snap, err
+	}
+	snap.Metrics = metrics
 	return snap, nil
 }

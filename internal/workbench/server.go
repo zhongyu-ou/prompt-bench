@@ -85,7 +85,7 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.frontend.ServeHTTP(w, r)
 		return
 	}
-	if a.packageAPI(w, r) || a.caseAPI(w, r) {
+	if a.metricAPI(w, r) || a.packageAPI(w, r) || a.caseAPI(w, r) {
 		return
 	}
 	switch r.URL.Path {
@@ -158,6 +158,14 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			input.Cases = current.Cases
 			input.Collections = current.Collections
+			if _, present := fields["metrics"]; !present {
+				input.Metrics = current.Metrics
+			}
+			var draftFields map[string]json.RawMessage
+			json.Unmarshal(fields["draft"], &draftFields)
+			if _, present := draftFields["metrics"]; !present {
+				input.Draft.Metrics = current.Draft.Metrics
+			}
 			s, err := a.store.saveState(input.State, input.CredentialUpdates)
 			if err != nil {
 				fail(w, statusFor(err), err)

@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="css/case-editor.css">
 <link rel="stylesheet" href="css/case-io.css">
 <link rel="stylesheet" href="css/groups.css">
+<link rel="stylesheet" href="css/metrics.css">
 <link rel="stylesheet" href="css/collection-dialogs.css">
 <link rel="stylesheet" href="css/responsive.css">
 </head>
@@ -57,6 +58,10 @@
       <button type="button" class="nav-item" data-view="history" aria-label="运行记录" title="运行记录">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6a6.5 6.5 0 1 1-1 7"/><path d="M3 4v3.2h3.2M10 6.5V10l2.4 1.6"/></svg>
         <span class="nav-label">运行记录</span>
+      </button>
+      <button type="button" class="nav-item" data-view="metrics" aria-label="指标" title="指标">
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 16.5V9.5M7.8 16.5V3.5M12.6 16.5v-5M17.4 16.5V6"/></svg>
+        <span class="nav-label">指标</span>
       </button>
       <button type="button" class="nav-item" data-view="providers" aria-label="Providers" title="Providers">
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6.2 14.5h8a3.2 3.2 0 0 0 .4-6.4 4.6 4.6 0 0 0-8.8-1.3A3.8 3.8 0 0 0 6.2 14.5z"/></svg>
@@ -162,6 +167,15 @@
               <button type="button" class="btn tiny" id="add-group-btn">＋ 添加配置</button>
             </div>
             <div id="group-cards" class="group-cards"></div>
+            <section class="metric-pick" id="metric-pick" aria-labelledby="metric-pick-title">
+              <div class="metric-pick-head">
+                <h3 id="metric-pick-title">评估指标</h3>
+                <span class="pill subtle">批次公共</span>
+                <button type="button" class="btn tiny" id="manage-metrics-btn">管理指标</button>
+              </div>
+              <div id="metric-pick-list" class="metric-pick-list"></div>
+              <div class="metric-budget" id="metric-budget" aria-live="polite"></div>
+            </section>
           </section>
         </aside>
       </div>
@@ -170,6 +184,7 @@
         <div class="output-head">
           <div class="filetabs" role="tablist" aria-label="运行输出">
             <button type="button" class="filetab" role="tab" id="out-tab-results" data-output-tab="results" aria-selected="true">运行输出</button>
+            <button type="button" class="filetab" role="tab" id="out-tab-summary" data-output-tab="summary" aria-selected="false">评估汇总</button>
             <button type="button" class="filetab" role="tab" id="out-tab-snapshot" data-output-tab="snapshot" aria-selected="false">批次快照</button>
           </div>
           <div class="progress-box">
@@ -181,10 +196,17 @@
           </div>
           <button type="button" class="btn tiny danger" id="stop-btn" hidden>停止运行</button>
         </div>
+        <div class="stop-confirm" id="stop-confirm" role="alert" hidden>
+          <span>停止后不再启动新调用；在途请求收尾，未执行的指标标记取消。</span>
+          <div class="stop-confirm-actions">
+            <button type="button" class="btn tiny" id="stop-cancel-btn">继续运行</button>
+            <button type="button" class="btn tiny danger" id="stop-confirm-btn">确认停止</button>
+          </div>
+        </div>
         <div class="output-toolbar" id="output-toolbar">
           <label class="inline-field"><span>配置</span><select class="input select compact" id="filter-group"><option value="">全部</option></select></label>
           <label class="inline-field"><span>Case</span><select class="input select compact" id="filter-case"><option value="">全部</option></select></label>
-          <label class="inline-field"><span>状态</span>
+          <label class="inline-field" id="filter-status-field"><span>状态</span>
             <select class="input select compact" id="filter-status">
               <option value="">全部</option>
               <option value="completed">成功</option>
@@ -195,13 +217,25 @@
               <option value="interrupted">结果未知</option>
             </select>
           </label>
-          <span class="muted small" id="result-count"></span>
-          <span class="muted small" id="batch-meta"></span>
+          <div id="output-metric-filters" hidden></div>
           <button type="button" class="btn tiny" id="reload-run-btn">刷新</button>
         </div>
         <div id="output-results-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-results">
           <div class="empty-state" id="output-empty">尚未运行。选择案例和对照配置后点击“运行”。</div>
           <div class="result-list" id="result-list"></div>
+          <nav class="output-pager" id="output-pager" aria-label="运行输出分页" hidden>
+            <span class="muted small" id="output-page-range" aria-live="polite"></span>
+            <div class="pager-controls">
+              <label class="inline-field"><span>每页</span><select class="input tiny" id="output-page-size" aria-label="每页结果数"><option value="20">20 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label>
+              <button type="button" class="btn tiny" id="output-page-prev">上一页</button>
+              <label class="inline-field"><span>第</span><input class="input tiny output-page-input" id="output-page-number" type="number" min="1" value="1" aria-label="结果页码"><span id="output-page-total">/ 1 页</span></label>
+              <button type="button" class="btn tiny" id="output-page-next">下一页</button>
+            </div>
+          </nav>
+        </div>
+        <div id="output-summary-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-summary" hidden>
+          <div class="empty-state" id="output-summary-empty">该批次没有评估汇总。选择指标并运行后可在这里查看。</div>
+          <div id="output-summary"></div>
         </div>
         <div id="output-snapshot-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-snapshot" hidden>
           <div class="empty-state" id="output-snapshot-empty">载入批次后可查看冻结快照。</div>
@@ -568,6 +602,116 @@
       </div>
     </section>
 
+    <section class="view" id="view-metrics" aria-labelledby="metrics-title" hidden>
+      <div class="page-toolbar">
+        <div class="toolbar-title">
+          <h1 id="metrics-title" class="page-title">指标</h1>
+          <div class="save-line"><span id="metric-save-state">管理可在批次中复用的判断规则</span></div>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn" id="metric-new-code-btn">新建代码指标</button>
+          <button type="button" class="btn" id="metric-new-model-btn">新建模型指标</button>
+          <button type="button" class="btn primary" id="metric-save-btn" disabled>保存指标</button>
+        </div>
+      </div>
+      <div class="metrics-layout">
+        <section class="card metrics-list-card" aria-labelledby="metrics-list-title">
+          <div class="card-head">
+            <h2 class="card-title" id="metrics-list-title">全部指标</h2>
+            <span class="pill" id="metric-count">0</span>
+            <button type="button" class="btn tiny" id="metric-new-inline-btn">＋ 新建</button>
+          </div>
+          <div class="metrics-search">
+            <label class="field"><span>搜索</span><input class="input" id="metric-search" type="search" autocomplete="off" placeholder="搜索指标"></label>
+          </div>
+          <div class="metric-list" id="metric-list"></div>
+        </section>
+
+        <section class="card metric-editor-card" aria-labelledby="metric-editor-title">
+          <div class="empty-state" id="metric-editor-empty">
+            <div class="metrics-empty-body">
+              <strong>还没有选择指标</strong>
+              <span>选择左侧指标编辑，或新建代码 / 模型判断。</span>
+            </div>
+          </div>
+          <div id="metric-editor" hidden>
+            <div class="metric-editor-head">
+              <h2 class="card-title" id="metric-editor-title">指标</h2>
+              <span class="pill" id="metric-editor-type-tag">代码 · 布尔</span>
+              <button type="button" class="btn tiny danger-text" id="metric-delete-btn">删除</button>
+            </div>
+            <div class="metric-fields">
+              <label class="field"><span>指标名称</span><input class="input" id="metric-editor-name" type="text" autocomplete="off"></label>
+              <label class="field"><span>执行方式</span>
+                <select class="input select" id="metric-editor-kind">
+                  <option value="code">代码 · JavaScript</option>
+                  <option value="model">模型 · Typesafe JEV</option>
+                </select>
+              </label>
+              <label class="field"><span>返回类型</span>
+                <select class="input select" id="metric-editor-return">
+                  <option value="boolean">布尔</option>
+                  <option value="number">数值</option>
+                  <option value="classification">分类</option>
+                </select>
+              </label>
+            </div>
+            <label class="field"><span>判断规则</span><textarea class="input metric-rule" id="metric-rule" rows="3" placeholder="用自然语言写清判断标准；代码指标用它生成提示词，模型指标作为判断依据。"></textarea></label>
+
+            <div id="metric-code-section">
+              <div class="metric-section-head">
+                <span>JavaScript</span>
+                <button type="button" class="btn tiny" id="metric-ai-btn">复制 AI 编写提示词</button>
+              </div>
+              <textarea class="code-editor metric-code" id="metric-code" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="function evaluate(input) { return { value: true, reason: '...' }; }"></textarea>
+              <p class="muted small">输入使用 <span class="mono">input.target</span>，返回 <span class="mono">{ value, reason? }</span>；不支持文件、网络、进程或第三方包。</p>
+            </div>
+
+            <div id="metric-model-section">
+              <div class="metric-fields model-fields">
+                <label class="field"><span>Provider（决策评估）</span><select class="input select" id="metric-provider"></select></label>
+                <label class="field"><span>模型版本</span><input class="input mono" id="metric-model" type="text" autocomplete="off" placeholder="jev-latest"></label>
+              </div>
+              <p class="metric-provider-hint" id="metric-provider-hint"></p>
+              <div class="metric-threshold" id="metric-bool-section">
+                <label class="field"><span>true 的概率阈值</span><input class="input num-input" id="metric-threshold" type="number" min="0" max="1" step="0.01"><small>使用 Noul 的 yes 概率；大于阈值时返回 true，原始概率保留在结果中。</small></label>
+              </div>
+              <div class="metric-levels" id="metric-number-section">
+                <div class="metric-section-head"><span>评分等级</span><span class="muted small">按从低到高排序 · 2–10 级</span></div>
+                <div id="metric-levels"></div>
+                <button type="button" class="btn tiny" id="metric-add-level">＋ 添加等级</button>
+                <p class="muted small">当前为原生量程；评分是各等级的概率加权值，不是百分比或精确测量。</p>
+              </div>
+              <p class="muted small metric-provider-link">前往 <button type="button" class="link-btn" id="metric-provider-link">Providers</button> 管理决策模型连接。</p>
+            </div>
+
+            <div class="metric-labels" id="metric-labels-section">
+              <div class="metric-section-head"><span>分类标签</span><span class="muted small">标签为固定返回值；描述帮助模型区分类别</span></div>
+              <div id="metric-labels"></div>
+              <button type="button" class="btn tiny" id="metric-add-label">＋ 添加标签</button>
+            </div>
+
+            <p class="field-error" id="metric-editor-error" role="alert"></p>
+
+            <div class="metric-trial" id="metric-trial-section">
+              <div class="metric-section-head"><span>试算</span><button type="button" class="btn tiny" id="metric-trial-run">运行试算</button></div>
+              <div class="metric-trial-fields">
+                <label class="field"><span>试算对象</span>
+                  <select class="input select compact" id="metric-trial-target-mode">
+                    <option value="output">整段输出</option>
+                    <option value="json_pointer">JSON Pointer</option>
+                  </select>
+                </label>
+                <label class="field" id="metric-trial-pointer-field" hidden><span>JSON Pointer</span><input class="input mono compact" id="metric-trial-pointer" type="text" autocomplete="off" placeholder="/en"></label>
+              </div>
+              <label class="field"><span>输出示例（不保存，不使用真实 Case）</span><textarea class="input code-editor metric-trial-input" id="metric-trial-input" rows="3" spellcheck="false" placeholder="输入一段本地示例输出"></textarea></label>
+              <div id="metric-trial-result" class="metric-trial-result" aria-live="polite"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <section class="view" id="view-providers" aria-labelledby="providers-title" hidden>
       <div class="page-toolbar">
         <div class="toolbar-title">
@@ -771,6 +915,22 @@
       <button type="submit" class="btn primary" id="template-confirm">创建模板</button>
     </div>
   </form>
+</dialog>
+
+<dialog class="modal" id="metric-ai-dialog" aria-labelledby="metric-ai-title">
+  <div class="modal-head">
+    <h2 id="metric-ai-title">复制 AI 编写提示词</h2>
+    <button type="button" class="icon-btn" data-close-dialog="metric-ai-dialog" aria-label="关闭">✕</button>
+  </div>
+  <div class="modal-body">
+    <p class="muted small">把提示词复制到外部 AI，生成函数代码后粘贴回指标编辑器。提示词只包含当前规则与契约，不包含真实 Case、凭据或其他私有数据。</p>
+    <pre class="metric-ai-text" id="metric-ai-text"></pre>
+    <p class="field-error" id="metric-ai-error" role="alert"></p>
+  </div>
+  <div class="modal-foot">
+    <button type="button" class="btn" data-close-dialog="metric-ai-dialog">取消</button>
+    <button type="button" class="btn primary" id="metric-ai-copy">复制提示词</button>
+  </div>
 </dialog>
 
 <datalist id="model-suggestions"></datalist>

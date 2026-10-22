@@ -1,5 +1,5 @@
 import { App } from './state.js';
-import { groupById, groupEditorDirty, markEdit, protocolLabel, providerById, resolveGroupTargets, templateById } from './model.js';
+import { groupById, groupEditorDirty, markEdit, protocolLabel, protocolSupports, providerById, providersWithCapability, resolveGroupTargets, templateById } from './model.js';
 import { $, clone, esc, hasOwn, pretty, sourceLanguageOf, stableStringify } from './utils.js';
 import { nextGroupDefaults, renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { setView } from './navigation.js';
@@ -61,9 +61,13 @@ function renderGroupEditor() {
     : '<option value="">（无模板）</option>';
   tplSel.value = w.template_id || '';
   const provSel = $('ge-provider');
-  provSel.innerHTML = App.state.providers.length
-    ? App.state.providers.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)} · ${esc(protocolLabel(p.protocol || '未设置协议'))}</option>`).join('')
-    : '<option value="">（无 Provider）</option>';
+  const generationProviders = providersWithCapability('generation');
+  const options = generationProviders.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)} · ${esc(protocolLabel(p.protocol || '未设置协议'))}</option>`);
+  if (w.provider_id && !generationProviders.some((p) => p.id === w.provider_id)) {
+    const existing = providerById(w.provider_id);
+    options.unshift(`<option value="${esc(w.provider_id)}" disabled>${esc(existing ? `${existing.name || existing.id}（不可用于生成）` : 'Provider 缺失')}</option>`);
+  }
+  provSel.innerHTML = options.length ? options.join('') : '<option value="">（无支持生成的 Provider）</option>';
   provSel.value = w.provider_id || '';
   $('group-delete-btn').hidden = ge.mode !== 'edit';
 
@@ -208,6 +212,7 @@ function groupEditorSave() {
   if (!name) errors.push('配置名称不能为空。');
   if (!templateId || !templateById(templateId)) errors.push('请选择存在的模板。');
   if (!providerId || !providerById(providerId)) errors.push('请选择存在的 Provider。');
+  else if (!protocolSupports(providerById(providerId).protocol, 'generation')) errors.push('该 Provider 不支持文本生成，不能用于对照组；请选择生成能力的 Provider。');
   if (!model) errors.push('模型 ID 不能为空。');
   if (!Number.isInteger(runs) || runs < 1 || runs > 1000) errors.push('每 Case 次数必须为 1–1000 的整数。');
   if (!ge.paramsValid) errors.push(ge.error || '高级参数 JSON 无效。');

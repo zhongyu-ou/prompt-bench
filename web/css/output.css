@@ -32,35 +32,36 @@
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
+#reload-run-btn { margin-left: auto; }
+#output-metric-filters { display: contents; }
+#output-metric-filters[hidden] { display: none; }
 .output-toolbar[hidden] { display: none; }
 .output-panel[hidden] { display: none; }
 .output-panel { min-height: 100px; max-height: 420px; overflow: auto; }
+#output-results-panel { max-height: none; overflow: visible; }
+.output-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--border); }
+.output-pager[hidden] { display: none; }
+.output-page-input { width: 64px; text-align: center; }
 .empty-state { padding: 18px 16px; text-align: center; color: var(--muted); font-size: 12px; }
 .empty-state[hidden] { display: none; }
 .result-list { display: flex; flex-direction: column; }
-.result-summary {
-  display: grid;
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  text-align: left;
-  grid-template-columns: 70px minmax(90px, 1fr) minmax(80px, 0.9fr) 78px 60px minmax(160px, 2fr);
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 11px;
-}
+.result-table { table-layout: fixed; border-spacing: 0; min-width: 100%; font-size: 11px; }
+.result-table th, .result-table td { box-sizing: border-box; padding: 8px 12px; text-align: center; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-2); font-weight: 600; }
+.result-summary { background: var(--surface); color: var(--text); cursor: pointer; }
 .result-summary:hover { background: #fafcff; }
-.result-summary.selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
-.result-summary .snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
-.result-summary .time { font-family: var(--mono-font); color: var(--muted); font-size: 10px; }
-.result-summary .case { font-family: var(--mono-font); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.result-summary .case .rep { color: var(--muted); margin-right: 3px; }
-.result-summary .model { font-family: var(--mono-font); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
-.result-summary .dur { font-family: var(--mono-font); color: var(--muted); font-size: 10px; text-align: right; }
+.result-summary.selected { background: var(--accent-soft); }
+.result-summary.selected td:first-child { box-shadow: inset 3px 0 var(--accent); }
+.result-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.result-summary .snippet { text-align: left; color: var(--text-2); }
+.result-summary .snippet.output-error { color: var(--err); }
+.result-summary .time, .result-summary .rep, .result-summary .dur { font-family: var(--mono-font); color: var(--muted); font-size: 10.5px; }
+.result-summary .case { font-family: var(--mono-font); font-size: 10.5px; }
+.result-metric-value { display: inline-flex; max-width: 100%; padding: 2px 8px; border-radius: 4px; font-family: var(--mono-font); color: var(--text); background: var(--surface-3); font-weight: 500; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.result-metric-value.true { background: #fff0dc; color: #926015; }
+.result-metric-value.false { background: #eaf2ff; color: #315e9c; }
+.result-metric-value.number { background: #e5f3f2; color: #286d68; }
+.result-metric-value.classification { background: #f0ebfa; color: #70519c; }
 .status-tag {
   display: inline-flex;
   align-items: center;
@@ -124,7 +125,7 @@
 
 .result-browser { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .result-browser.has-preview { grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); height: 420px; }
-.result-rows { min-width: 0; min-height: 0; max-height: 420px; overflow: auto; }
+.result-rows { min-width: 0; min-height: 0; max-height: 420px; overflow: auto; scrollbar-gutter: stable; overscroll-behavior-x: contain; }
 .result-preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
 .result-preview[hidden] { display: none; }
 .result-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
