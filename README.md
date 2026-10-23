@@ -74,7 +74,7 @@ Initial state contains four example ASR input Cases and an embedded `seed.tmpl`;
 - Manage run data, collections and temporary exclusions in **Case 库**, not in the workbench. The workbench shows the applied scope and a link back to its controls. Global concurrency and default repeats are edited only in **全局设置**; changing default repeats does not rewrite existing configurations.
 - Result previews in both workbench and history use 输出 / 请求 / 响应 / 详情 / 评估 tabs. The bottom panel keeps 运行输出 / 评估汇总 / 批次快照. JSON is formatted, highlighted and wrapped by default; the copy icon copies the full original content, not the clipped display or reserialized numbers. Plain or malformed JSON remains text. The standalone Case/request preview cards have been removed; the preview HTTP API remains available.
 - Each group owns exact raw-source language routes and custom target key/name descriptors. `zh-CN` does not match `zh`. Unmatched sources always use English (`en`), including en→en without a rule. Effective target maps are injected at render time; several targets still mean one request.
-- Standard JSON/JSONL Case/Collection import previews new/existing inputs and only adds/reuses by full input fingerprint (object key order only). No ID-based updates. Membership export is optional and never expands selected Cases through shared collections. Downloadable examples and exact endpoints are in [docs/case-api.md](docs/case-api.md). Old whole-state/run-log files are not Case packages.
+- Import defaults to **Eve / Vocat 变量**: paste a variables object directly, a JSON array, or one object per JSONL line; no header or ID is needed. The data-format selector also accepts exported **Promptbench 标准包** with optional collection relationships. Both paths preview new/existing inputs and only add/reuse by full input fingerprint (object key order only), never update by ID. Membership export never expands selected Cases through shared collections. Examples and exact endpoints are in [docs/case-api.md](docs/case-api.md).
 - One active batch at a time, with 1–20 concurrent calls across **all groups/cases**. A second start or replay returns an explicit 409 while a batch is running/stopping. Requests interleave group within case within repeat. No automatic retries or outbound redirects.
 - Refreshing/closing the browser does not stop backend execution. Stop cancels only unissued generation/metric work; in-flight calls finish and persist. Graceful server shutdown stops unissued work and waits for issued calls (up to their configured timeout).
 - Every attempt is visible as pending/running/completed/failed/cancelled/interrupted. History preserves frozen input sources, endpoint, requested/returned model identities, parameter presence, rendered request bytes, raw response, HTTP errors, decode errors and duration. Evaluation metrics add declared judgments beside the output; they are not an implicit pass/fail gate.
@@ -110,12 +110,72 @@ For backup, stop the application, use PostgreSQL backup tooling (for example `pg
 
 Limits: 8 MiB inbound JSON, 1 MiB rendered content per message, 16 MiB captured response body per attempt, 100000 attempts per batch, 1000 repeats per group and 3600-second maximum request timeout (default 120). Oversized response capture fails explicitly and retains its prefix. These are local accident guards, not a sandbox for untrusted templates; Go template builtins can still perform substantial computation. Non-UTF-8 response bytes are preserved in `raw_response_base64`. Actual resolved keys echoed by upstream are redacted before persistence/UI/export; redaction is the intentional exception to exact raw-response preservation. Auth headers are never persisted. Provider URLs with credentials/query/fragment are rejected. The local API checks Host/Origin, requires JSON mutations and does not enable CORS.
 
+## Checks and CI
+
+Go 1.25+ and Node.js LTS are required for checks. For local tests, create a dedicated PostgreSQL database ending in `_test`, then configure its connection once:
+
+```sh
+cp .env.test.example .env.test
+chmod 600 .env.test
+# Edit .env.test with the test database connection (URL-encode credentials).
+make check
+```
+
+`make test-backend` and `make test-race` load Git-ignored `.env.test` only when `PROMPTBENCH_TEST_DATABASE_URL` is not already set; no shell export is needed for `make check`. Use shell-compatible `NAME='value'` assignments in this trusted local file. Direct `go test` still requires the environment variable explicitly. Tests create and remove isolated schemas, never load the application YAML, and fail if the configured test database is unavailable. Never point them at the application database.
+
+| Command | Behavior |
+|---|---|
+| `make fmt` | Format Go sources in place |
+| `make fmt-check` | Reject unformatted Go sources without modifying them |
+| `make lint` | Run `lint-backend` (`go vet`) and `lint-frontend` (JS syntax checks) |
+| `make type-check` | Compile and type-check all Go packages without writing a project binary |
+| `make test` | Run `test-backend` (Go tests) and `test-frontend` (Node's existing tests) |
+| `make test-race` | Run Go tests with the race detector, then frontend tests |
+| `make check` | Format first, then lint, type-check and test |
+| `make ci-check` | Check formatting without edits, then lint and type-check; no database required |
+
+Composite checks execute their stages in order, including with `make -j`. The frontend is native JavaScript: syntax checks are not type checking, and no frontend package installation or build is needed.
+
+GitHub Actions runs on pull requests, pushes to `main` and manual dispatch. Its single job calls `make ci-check`: formatting, lint and compilation only. Run tests locally with `make check`; use `make test-race` when checking concurrency. CI does not start PostgreSQL, run tests, build container images or deploy the application.
+
+## Docker Compose (Linux)
+
+The Compose deployment runs **only Promptbench**, connected to an existing PostgreSQL instance. It uses Linux host networking to preserve loopback-only binding and exact Host/Origin checks. There is no reverse proxy, public listener or database container. Docker Desktop requires explicitly supported/enabled host networking; on macOS, prefer `make run` with the existing database.
+
+Requires Docker Engine and Compose 2.24.0+. Prepare a dedicated database owned by the application role and a private configuration:
+
+```sh
+cp config/config.example.yml config/config.yml
+# Edit database host, port, user, password, name and sslmode.
+# For a remote database, use its supported TLS verification settings.
+sudo chown 10001:10001 config/config.yml
+sudo chmod 600 config/config.yml
+docker compose up --build -d
+```
+
+The image runs as UID/GID `10001`, so the mounted configuration must be readable by that identity. Edit the private file with appropriate privileges after changing ownership; do not make its password world-readable. A missing config file fails instead of creating a directory. Database settings come only from YAML, not Compose environment interpolation. With host networking, `127.0.0.1` refers to the Docker host; use the actual existing database address, not a Compose `db` hostname. Connect directly or through session pooling, never transaction pooling.
+
+Open **http://127.0.0.1:8787** on the host. The image explicitly fixes the listen address to that value so its health check and Host checks agree; the YAML server port does not change the image's explicit `--listen` override. For remote use, forward this loopback port over SSH rather than exposing it publicly.
+
+Optional project-local `.env` supplies Provider environment credentials to the container; restrict it to `0600`. It does not configure PostgreSQL. Manual credentials can also be entered through the UI. Actual configuration, environment files and credential keys are excluded from the image build context.
+
+The `credentials` named volume persists `/var/lib/promptbench/credentials.key` with private permissions. Keep it together with a backup of the existing PostgreSQL database. Stop the app before backing up; restore the matching key before starting against a restored database. For an existing installation, restore its original key into the volume with UID/GID `10001` and mode `0600` before first start; do not generate a replacement. Do not use `docker compose down -v` for restarts or upgrades.
+
+```sh
+docker compose logs -f app
+docker compose up --build -d       # rebuild and recreate after source updates
+docker compose stop               # allow issued calls to finish (up to 61 minutes)
+```
+
+Container health requests `/api/health`, which reports HTTP liveness, not database-session readiness. Read `/api/state` to check database-backed access. A lost PostgreSQL session requires an application restart; do not assume a healthy HTTP process has reconnected.
+
+
 ## Local verification without paid services
 
 ```sh
-# Set PROMPTBENCH_TEST_DATABASE_URL securely to a dedicated database ending in _test.
-# Tests require it explicitly and create/drop only their own unique schemas.
-go test -race ./...
+# Configure .env.test once with a dedicated database ending in _test.
+# Tests create/drop only their own unique schemas.
+make test-race
 # Terminal 1: an HTTP fixture, NOT a real model or quality assessment:
 go run ./cmd/fixture --listen 127.0.0.1:9797 --delay 150ms
 # Terminal 2: use a separate empty smoke database in a private smoke YAML:

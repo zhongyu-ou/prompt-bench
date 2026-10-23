@@ -58,7 +58,9 @@ const App = {
   },
   caseEditor: null,
   io: {
-    format: 'jsonl',
+    inputFormat: 'eve-vocat',
+    format: 'json',
+    error: '',
     fileName: '',
     content: '',
     preview: null,

@@ -1,0 +1,29 @@
+# Only application sources and public examples enter the build context.
+**
+!Dockerfile
+!.dockerignore
+!go.mod
+!go.sum
+!main.go
+!internal/
+!internal/**
+!web/
+!web/**
+!config/
+!config/config.example.yml
+!.env.example
+
+# Keep private runtime files excluded even if nested below source directories.
+**/.env
+**/.env.*
+!.env.example
+**/credentials.key
+**/*.pem
+**/*.key
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/database
+**/node_modules
+**/.DS_Store

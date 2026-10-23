@@ -1,0 +1,26 @@
+name: promptbench
+
+services:
+  app:
+    image: promptbench:local
+    build:
+      context: .
+    restart: unless-stopped
+    stop_grace_period: 61m
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - type: bind
+        source: ./config/config.yml
+        target: /etc/promptbench/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: credentials
+        target: /var/lib/promptbench
+
+volumes:
+  credentials:
