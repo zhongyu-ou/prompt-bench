@@ -1,12 +1,18 @@
 # Case workflow API
 
-All endpoints share the host/origin, JSON and credential protections in [api.md](api.md). Mutations below require `state_version` and return updated `StateView` (including recomputed credential metadata); stale versions return409 before semantic validation. GET state includes `collections:[]`.
+All endpoints share the host/origin, JSON and credential protections in [API](api.md). Persisted resource mutations require `state_version` and return updated `StateView` (including recomputed credential metadata); stale versions return 409 before semantic validation. GET state includes `collections:[]`. Pure variable preview does not require a version; selection/import previews and export require the version specified below.
+
+This document owns Case/collection resources, selection/language routing and
+import/export formats. [API](api.md) owns generic state saves, shared contract
+definitions, generation and evaluation; [architecture](architecture.md) owns
+implementation structure and design rationale. Use [verification](verification.md)
+for checks rather than treating historical QA as the current contract.
 
 ## Models
 
 Persisted/exported Case is exactly `{id,variables}`. ID is server-generated random opaque hex. StateView read responses add derived `variables_json:"<canonical JSON object text>"` for lossless editing; this is never a second persisted input. Variables is an object; `TargetLanguageNameMap` is forbidden. No name/description. Collection is `{id,name,case_ids:[]}`. Draft adds `collection_ids:[]` and `excluded_case_ids:[]` alongside explicit `case_ids`.
 
-`PUT /api/state` edits only `{version,templates,providers,settings,draft,credential_updates?,credentials?}`. Omit cases/collections: the server retains their exact stored JSON numbers and variables rather than round-tripping them through JavaScript. Explicit echoed cases/collections must be exactly unchanged; mutations return400 and must use dedicated endpoints. Stale versions return409 first, even for old name-bearing Case schemas. Generic saves never round or normalize imported numeric values.
+Cases and collections are read-only through generic `PUT /api/state`; use the dedicated endpoints below for changes. Omit their fields from generic saves so the server retains exact stored JSON numbers and variables. Explicit echoes must be exactly unchanged; mutations return 400. Stale versions return 409 first, even for old name-bearing Case schemas. Generic saves never round or normalize imported numeric values. The complete generic write shape belongs to [state and write-only credentials](api.md#state-and-write-only-credentials).
 
 Read responses serialize empty root cases/collections resource lists as `[]`; unchanged empty-list echoes treat root null/[] as equivalent for old databases only. This does not normalize any nested Case input: null versus [], array order, numeric literals and text remain fingerprint-significant and unchanged.
 
@@ -26,6 +32,14 @@ Group adds `language_routes:[{source_language:"zh-CN",targets:[{key:"en",name:"E
 The complete state supports client-side search, filtering, all-matching-ID selection and paginated rendering; the API does not paginate Cases.
 
 ## Selection and rendering
+
+Cases are prepared template variables, not exclusive members of a template or
+contract. The template's optional `input_contract_id` controls compatibility at
+preview/start; see [Shared input contracts](api.md#shared-input-contracts) for the
+definition, validation, impact and frozen-history contract.
+`TargetLanguageNameMap` is runtime configuration, never a stored Case input.
+Eve/Vocat import defaults below apply only to that import transformation; contract
+validation does not add them.
 
 `POST /api/selection/preview` accepts `{state_version,case_ids:[],collection_ids:[],excluded_case_ids:[],groups:[<full groups>]}` and returns `{state_version,case_ids:[<final ordered IDs>],case_count,request_count,resolutions:[{case_id,group_id,source_language,targets,used_default}]}`. IDs are unioned in explicit then collection order, deduplicated by ID; exclusions are temporary. Every referenced ID must exist. This endpoint never sends calls.
 

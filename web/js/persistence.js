@@ -32,6 +32,7 @@ async function loadState() {
 function editableStateSnapshot() {
   return {
     templates: clone(App.state.templates),
+    input_contracts: clone(App.state.input_contracts),
     providers: clone(App.state.providers),
     metrics: clone(App.state.metrics),
     settings: clone(App.state.settings),
@@ -70,6 +71,7 @@ async function saveState({ silent = false } = {}) {
   const body = {
     version: App.version,
     templates: editable.templates,
+    input_contracts: editable.input_contracts,
     providers: editable.providers,
     metrics: editable.metrics,
     settings: editable.settings,

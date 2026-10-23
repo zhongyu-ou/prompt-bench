@@ -129,6 +129,8 @@
               </div>
             </div>
             <div class="editor-tools">
+              <label class="inline-field"><span>输入契约</span><select class="input select compact" id="template-contract" aria-label="模板输入契约"></select></label>
+              <button type="button" class="btn tiny" id="contracts-manage">管理共享契约</button>
               <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
               <details class="menu" id="insert-var-menu">
                 <summary class="btn tiny">插入变量</summary>
@@ -170,7 +172,6 @@
             <section class="metric-pick" id="metric-pick" aria-labelledby="metric-pick-title">
               <div class="metric-pick-head">
                 <h3 id="metric-pick-title">评估指标</h3>
-                <span class="pill subtle">批次公共</span>
                 <button type="button" class="btn tiny" id="manage-metrics-btn">管理指标</button>
               </div>
               <div id="metric-pick-list" class="metric-pick-list"></div>
@@ -184,7 +185,7 @@
         <div class="output-head">
           <div class="filetabs" role="tablist" aria-label="运行输出">
             <button type="button" class="filetab" role="tab" id="out-tab-results" data-output-tab="results" aria-selected="true">运行输出</button>
-            <button type="button" class="filetab" role="tab" id="out-tab-summary" data-output-tab="summary" aria-selected="false">评估汇总</button>
+            <button type="button" class="filetab" role="tab" id="out-tab-summary" data-output-tab="summary" aria-selected="false" hidden>评估汇总</button>
             <button type="button" class="filetab" role="tab" id="out-tab-snapshot" data-output-tab="snapshot" aria-selected="false">批次快照</button>
           </div>
           <div class="progress-box">
@@ -197,7 +198,7 @@
           <button type="button" class="btn tiny danger" id="stop-btn" hidden>停止运行</button>
         </div>
         <div class="stop-confirm" id="stop-confirm" role="alert" hidden>
-          <span>停止后不再启动新调用；在途请求收尾，未执行的指标标记取消。</span>
+          <span>停止生成后不再启动新生成；在途请求收尾。评估可在版本选择旁单独停止。</span>
           <div class="stop-confirm-actions">
             <button type="button" class="btn tiny" id="stop-cancel-btn">继续运行</button>
             <button type="button" class="btn tiny danger" id="stop-confirm-btn">确认停止</button>
@@ -218,7 +219,16 @@
             </select>
           </label>
           <div id="output-metric-filters" hidden></div>
+          <label class="inline-field"><span>评估版本</span><select class="input select compact" id="evaluation-version" aria-label="评估版本"><option value="">暂无评估版本</option></select></label>
+          <label class="inline-field" id="evaluation-round-field" hidden><span>历史轮次</span><select class="input select compact" id="evaluation-round" aria-label="历史评估轮次"></select></label>
+          <button type="button" class="btn tiny" id="evaluation-recalculate" aria-label="重新计算评估" disabled>重算</button>
+          <button type="button" class="btn tiny danger-text" id="evaluation-stop" hidden>停止评估</button>
           <button type="button" class="btn tiny" id="reload-run-btn">刷新</button>
+        </div>
+        <div class="evaluation-feedback">
+          <span id="evaluation-status" class="muted small" role="status" aria-live="polite"></span>
+          <progress id="evaluation-progress" max="1" value="0" aria-label="所选评估版本进度" hidden></progress>
+          <p id="evaluation-error" class="field-error" role="alert"></p>
         </div>
         <div id="output-results-panel" class="output-panel" role="tabpanel" aria-labelledby="out-tab-results">
           <div class="empty-state" id="output-empty">尚未运行。选择案例和对照配置后点击“运行”。</div>
@@ -932,6 +942,20 @@
     <button type="button" class="btn" data-close-dialog="metric-ai-dialog">取消</button>
     <button type="button" class="btn primary" id="metric-ai-copy">复制提示词</button>
   </div>
+</dialog>
+<dialog class="modal contract-modal" id="contract-dialog" aria-labelledby="contract-title">
+  <div class="modal-head"><h2 id="contract-title">共享输入契约</h2><button type="button" class="icon-btn" id="contract-close" aria-label="关闭输入契约">✕</button></div>
+  <div class="modal-body">
+    <div class="btn-row"><label class="inline-field"><span>契约</span><select class="input select" id="contract-select" aria-label="选择共享契约"></select></label><button type="button" class="btn tiny" id="contract-new">新建</button><button type="button" class="btn tiny" id="contract-copy">复制为新契约</button><button type="button" class="btn tiny danger-text" id="contract-delete">删除未引用契约</button></div>
+    <label class="field"><span>名称</span><input class="input" id="contract-name"></label>
+    <label class="field"><span>说明</span><textarea class="input" id="contract-description" rows="2"></textarea></label>
+    <label class="field"><span>字段定义（JSON 对象，可嵌套）</span><textarea class="input mono" id="contract-fields" rows="14" spellcheck="false" aria-describedby="contract-schema-help"></textarea></label>
+    <p class="muted small" id="contract-schema-help">字段填写 type（string / number / integer / boolean / object / array）、required、nullable、description。object 用 fields 定义嵌套字段，array 用 items 定义元素。允许额外 Case 字段。TargetLanguageNameMap 由执行配置注入，不可定义为根输入字段。</p>
+    <details><summary>嵌套示例</summary><pre class="mono">{"CurrentText":{"type":"string","required":true,"nullable":false,"description":"已准备好的当前文本"},"Context":{"type":"array","required":false,"nullable":true,"description":"已处理的上下文","items":{"type":"object","required":false,"nullable":false,"description":"上下文项","fields":{"text":{"type":"string","required":true,"nullable":false,"description":"文本"}}}}}</pre></details>
+    <p class="muted small">共享编辑影响所有引用模板的未来使用；历史保持冻结。不兼容的新格式请复制为另一契约。</p>
+    <div id="contract-impact" aria-live="polite"></div><p class="field-error" id="contract-error" role="alert"></p>
+  </div>
+  <div class="modal-foot"><button type="button" class="btn" id="contract-review">检查受影响模板与当前 Cases</button><button type="button" class="btn primary" id="contract-save" disabled>确认影响并保存</button></div>
 </dialog>
 
 <datalist id="model-suggestions"></datalist>

@@ -241,3 +241,8 @@
   .metric-target-row { padding-left: 0; }
   .metric-pick-list { max-height: 320px; }
 }
+
+.contract-modal pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 340px; overflow: auto; background: var(--surface-2); padding: 10px; }
+.contract-modal { width: min(900px, calc(100vw - 32px)); }
+.contract-impact-cases { max-height: 240px; overflow: auto; font-size: 12px; }
+.contract-impact-cases > div { padding: 6px 0; border-bottom: 1px solid var(--border); }

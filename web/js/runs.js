@@ -8,6 +8,7 @@ import { setView } from './navigation.js';
 import { renderOutput, setOutputTab } from './output.js';
 import { updateDirtyUI } from './shell-view.js';
 import { renderHistoryList } from './history-view.js';
+import { refreshEvaluations } from './evaluations.js';
 
 async function startRun() {
   if (!App.state || App.saving || App.loading || App.mutating) return;
@@ -82,6 +83,7 @@ async function loadRunIntoOutput(id) {
     if (App.currentRunId !== requested) return;
     App.currentDetail = detail;
     renderOutput();
+    refreshEvaluations({ quiet: true });
     refreshRunPlan();
     if (batchActive(detail.batch)) {
       App.batchSeenActive = true;
@@ -120,6 +122,7 @@ async function pollCurrentRun() {
     const nowActive = batchActive(detail.batch);
     App.currentDetail = detail;
     renderOutput();
+    refreshEvaluations({ quiet: true });
     refreshRunPlan();
     App.pollTicks += 1;
     if (App.pollTicks % 4 === 0) refreshRuns({ quiet: true });
@@ -165,7 +168,7 @@ async function stopRun() {
     App.stopConfirm = false;
     renderOutput();
     refreshRunPlan();
-    toast('已请求停止：不再启动新生成或指标调用，在途调用收尾。', 'ok');
+    toast('已请求停止生成：不再启动新生成，在途生成收尾；评估可在版本选择旁单独停止。', 'ok');
     startPolling();
   } catch (err) {
     showBanner(`停止失败：${err.message}`, 'error');
@@ -202,8 +205,9 @@ async function resumeActiveRun() {
 }
 
 export function bindRunEvents() {
-  $('reload-run-btn').addEventListener('click', () => {
-    if (App.currentRunId) loadRunIntoOutput(App.currentRunId);
+  $('reload-run-btn').addEventListener('click', async () => {
+    if (App.currentRunId) await loadRunIntoOutput(App.currentRunId);
+    await refreshEvaluations();
   });
   $('stop-btn').addEventListener('click', requestStopConfirmation);
   $('stop-cancel-btn').addEventListener('click', cancelStopConfirmation);

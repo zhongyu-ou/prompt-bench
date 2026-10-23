@@ -22,6 +22,7 @@ function snapshotHtml(snapshot) {
   const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
   const requests = Array.isArray(snapshot.requests) ? snapshot.requests : [];
   const metrics = Array.isArray(snapshot.metrics) ? snapshot.metrics : [];
+  const contracts = Array.isArray(snapshot.input_contracts) ? snapshot.input_contracts : [];
   return `
     <div class="batch-snapshot">
       <div class="snapshot-section">
@@ -33,10 +34,16 @@ function snapshotHtml(snapshot) {
           <div class="snapshot-chip"><div class="name">Provider</div><div class="meta">${providers.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">对照配置</div><div class="meta">${groups.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">共享集合</div><div class="meta">${collections.length} 个</div></div>
-          <div class="snapshot-chip"><div class="name">评估指标</div><div class="meta">${metrics.length} 个</div></div>
+          ${metrics.length ? `<div class="snapshot-chip"><div class="name">评估指标</div><div class="meta">${metrics.length} 个指标</div></div>` : ''}
+          <div class="snapshot-chip"><div class="name">输入契约</div><div class="meta">${contracts.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">冻结请求</div><div class="meta">${requests.length} 个渲染请求</div></div>
         </div>
       </div>
+      ${contracts.length ? `<div class="snapshot-section">
+        <h3>当时的共享输入契约</h3>
+        ${snapshotChips(contracts, (contract) => `<div class="snapshot-chip"><div class="name">${esc(contract.name || contract.id)}</div><div class="meta">${esc(contract.description || '')}<br>${esc(contract.id)}</div></div>`)}
+        ${snapshotJsonDetails('查看冻结 input_contracts JSON', contracts)}
+      </div>` : ''}
       ${metrics.length ? `<div class="snapshot-section">
         <h3>评估指标</h3>
         ${snapshotChips(metrics, (entry) => {

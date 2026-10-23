@@ -26,14 +26,15 @@ type activeBatch struct {
 	stopped  bool
 }
 type Engine struct {
-	mu      sync.Mutex
-	store   *Store
-	client  *http.Client
-	getenv  func(string) string
-	active  *activeBatch
-	wg      sync.WaitGroup
-	fatal   error
-	closing bool
+	mu               sync.Mutex
+	store            *Store
+	client           *http.Client
+	getenv           func(string) string
+	active           *activeBatch
+	activeEvaluation *activeEvaluation
+	wg               sync.WaitGroup
+	fatal            error
+	closing          bool
 }
 
 func newEngine(s *Store, getenv func(string) string) *Engine {
@@ -57,7 +58,7 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 	if e.closing {
 		return Batch{}, errors.New("server is shutting down")
 	}
-	if e.active != nil {
+	if e.active != nil || e.activeEvaluation != nil {
 		return Batch{}, errActive
 	}
 	e.store.mu.Lock()
@@ -94,34 +95,18 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 		}
 		f.RequiresAuth = f.RequiresAuth || key != ""
 	}
-	for i := range snapshot.Metrics {
-		f := &snapshot.Metrics[i]
-		if err := validateMetric(f.Metric); err != nil {
-			return Batch{}, err
-		}
-		if err := validateMetricTarget(f.Target); err != nil {
-			return Batch{}, err
-		}
-		if f.Metric.Kind != "model" {
-			continue
-		}
-		if f.Provider == nil || f.Provider.Protocol != typesafeProtocol || f.Provider.CredentialRef == "" {
-			return Batch{}, errors.New("snapshot decision provider is missing")
-		}
-		if _, err := typesafeEndpoint(*f.Provider); err != nil {
-			return Batch{}, err
-		}
-		key, _, err := e.store.credential(f.Provider.CredentialRef, f.Provider.APIKeyEnv, true, e.getenv)
-		if err != nil {
-			return Batch{}, fmt.Errorf("metric %s: %w", f.Metric.Name, err)
-		}
-		keys[f.Provider.CredentialRef] = key
-		f.RequiresAuth = true
-	}
 	if strings.TrimSpace(name) == "" {
 		name = "Comparison"
 	}
 	d := Detail{Batch: Batch{ID: newID(), Name: name, Status: "running", CreatedAt: now(), Concurrency: concurrency, ReplayOf: replayOf}, Snapshot: snapshot, Results: []Result{}}
+	if concurrency < 1 || concurrency > 20 {
+		return Batch{}, errors.New("concurrency must be 1–20")
+	}
+	// Legacy inline metrics remain readable evidence but are never executed.
+	d.Snapshot.Metrics = nil
+	if snapshot.Evaluation != nil {
+		d.Batch.EvaluationExecutionID = newID()
+	}
 	maxRuns := 0
 	rawRequests := make(map[[2]string]string, len(snapshot.Requests))
 	total := 0
@@ -142,16 +127,6 @@ func (e *Engine) start(name string, snapshot Snapshot, concurrency int, replayOf
 		}
 	}
 	d.Batch.Total = len(d.Results)
-	for i := range d.Results {
-		for _, f := range snapshot.Metrics {
-			d.Results[i].Evaluations = append(d.Results[i].Evaluations, MetricOutcome{MetricID: f.Metric.ID, Status: "pending"})
-			d.Batch.Evaluation.Total++
-			d.Batch.Evaluation.Pending++
-			if f.Metric.Kind == "model" {
-				d.Batch.MaxModelCalls++
-			}
-		}
-	}
 	if d.Batch.Total == 0 {
 		return Batch{}, errors.New("snapshot has no requests")
 	}
@@ -206,29 +181,23 @@ func (e *Engine) worker(a *activeBatch) {
 		if err := e.store.update(a.detail.Batch, r); err != nil {
 			e.fatal = err
 		}
-		e.mu.Unlock()
-		r = e.evaluateResult(a, idx, r, f)
-		e.mu.Lock()
-		e.finish(a)
-		if err := e.store.update(a.detail.Batch, r); err != nil {
-			e.fatal = err
-		}
 		// Completed payloads live in PostgreSQL, not a second in-memory history.
 		a.detail.Results[idx] = Result{}
 		if a.detail.Batch.FinishedAt != "" {
 			e.active = nil
+			e.launchChainedEvaluationLocked(a)
 		}
 		e.mu.Unlock()
 	}
 }
 func (e *Engine) finish(a *activeBatch) {
 	b := &a.detail.Batch
-	if b.Completed+b.Failed+b.Cancelled == b.Total && b.InFlight == 0 && b.Evaluation.Pending == 0 && b.Evaluation.Running == 0 {
+	if b.Completed+b.Failed+b.Cancelled == b.Total && b.InFlight == 0 {
 		b.FinishedAt = now()
 		switch {
 		case a.stopped:
 			b.Status = "stopped"
-		case b.Failed > 0 || b.Evaluation.Error > 0:
+		case b.Failed > 0:
 			b.Status = "completed_with_errors"
 		default:
 			b.Status = "completed"
@@ -251,12 +220,6 @@ func (e *Engine) stop(id string) (Batch, error) {
 		r.Status = "cancelled"
 		r.FinishedAt = now()
 		r.Error = "stopped before dispatch"
-		for j := range r.Evaluations {
-			r.Evaluations[j].Status = "cancelled"
-			r.Evaluations[j].FinishedAt = now()
-			a.detail.Batch.Evaluation.Pending--
-			a.detail.Batch.Evaluation.Cancelled++
-		}
 		a.detail.Results[i] = r
 		changed = append(changed, r)
 		a.detail.Batch.Cancelled++
@@ -269,6 +232,7 @@ func (e *Engine) stop(id string) (Batch, error) {
 	}
 	if a.detail.Batch.FinishedAt != "" {
 		e.active = nil
+		e.launchChainedEvaluationLocked(a)
 	}
 	return a.detail.Batch, nil
 }
@@ -285,9 +249,16 @@ func (e *Engine) close() {
 	if e.active != nil {
 		id = e.active.detail.Batch.ID
 	}
+	evaluationID := ""
+	if e.activeEvaluation != nil {
+		evaluationID = e.activeEvaluation.detail.Evaluation.ID
+	}
 	e.mu.Unlock()
 	if id != "" {
 		e.stop(id)
+	}
+	if evaluationID != "" {
+		e.stopEvaluation(evaluationID)
 	}
 	e.wg.Wait()
 	e.client.CloseIdleConnections()

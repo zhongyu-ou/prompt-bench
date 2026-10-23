@@ -5,6 +5,7 @@ import { App } from './state.js';
 import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
+import { renderContractBinding } from './contracts.js';
 
 let renamingTemplateId = null;
 function renderTemplateMismatch() {
@@ -58,6 +59,7 @@ function renderTemplateOptions() {
 
 function renderTemplateEditor() {
   if (!App.state) return;
+  renderContractBinding();
   const tpl = activeTemplate();
   const msg = activeMessage();
   const ta = $('message-content');

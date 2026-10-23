@@ -136,7 +136,7 @@ function renderMetricsView() {
       const selected = App.state.draft.metrics.some((ref) => ref.metric_id === m.id);
       return `<button type="button" class="metric-list-item${active ? ' active' : ''}" data-metric-id="${esc(m.id)}" aria-pressed="${active}">
         <span class="metric-list-name">${esc(m.name || '未命名指标')}</span>
-        <span class="metric-list-meta">${esc(metricTypeLabel(m))}${selected ? ' · 本批次已选' : ''}</span>
+        <span class="metric-list-meta">${esc(metricTypeLabel(m))}${selected ? ' · 已选' : ''}</span>
       </button>`;
     }).join('');
   }
@@ -358,7 +358,7 @@ async function deleteMetricEditor() {
   const metric = metricById(editor.id);
   if (!metric) return;
   const selected = App.state.draft.metrics.some((ref) => ref.metric_id === metric.id);
-  const note = selected ? '\n\n该指标已在本批次选择中，会同时从选择中移除。' : '';
+  const note = selected ? '\n\n该指标已选，会同时从选择中移除。' : '';
   if (!window.confirm(`删除指标「${metric.name || metric.id}」？${note}\n\n已保存的历史批次与冻结快照不受影响；不会对历史重新评估。`)) return;
   const removed = metric.id;
   App.state.metrics = App.state.metrics.filter((m) => m.id !== removed);
@@ -378,7 +378,6 @@ function renderMetricSelection() {
   const refs = App.state.draft.metrics;
   if (!metrics.length) {
     host.innerHTML = `<div class="metric-pick-empty">
-      <span>还没有指标。批次只生成输出，不做评估。</span>
       <div class="btn-row">
         <button type="button" class="btn tiny primary" data-metric-new="code">新建代码指标</button>
         <button type="button" class="btn tiny" data-metric-new="model">新建模型指标</button>
@@ -419,11 +418,11 @@ function renderMetricSelection() {
   const budget = $('metric-budget');
   if (budget) {
     if (!refs.length) {
-      budget.textContent = '本批次未选择指标：只生成输出，不调用评估。';
+      budget.textContent = '';
     } else if (plan.modelCount) {
-      budget.textContent = `模型评估调用上限：${plan.maxModelCalls} 次（生成 ${plan.total || 0} 次 × 模型指标 ${plan.modelCount} 项）。`;
+      budget.textContent = `已选 ${refs.length} 项指标 · 生成后最多 ${plan.maxModelCalls} 次模型评估调用`;
     } else {
-      budget.textContent = '仅代码指标：不产生模型评估调用。';
+      budget.textContent = `已选 ${refs.length} 项代码指标 · 无模型评估调用`;
     }
   }
 }

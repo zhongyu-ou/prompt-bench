@@ -106,6 +106,9 @@ func (s *Store) state() (State, error) {
 	if st.Draft.Metrics == nil {
 		st.Draft.Metrics = []MetricSelection{}
 	}
+	if st.InputContracts == nil {
+		st.InputContracts = []InputContract{}
+	}
 	return st, err
 }
 func (s *Store) saveState(st State, updates map[string]CredentialUpdate) (State, error) {
@@ -226,6 +229,13 @@ func (s *Store) create(d Detail) error {
 	for i, r := range d.Results {
 		b, _ = json.Marshal(r)
 		if _, err = stmt.Exec(r.ID, d.Batch.ID, i, r.GroupID, r.CaseID, r.Iteration, b); err != nil {
+			return err
+		}
+	}
+	if d.Snapshot.Evaluation != nil {
+		child := newEvaluation(d.Batch.Name+" · evaluation", d.Batch.ID, "", *d.Snapshot.Evaluation, d.Snapshot.TimeoutSeconds)
+		child.Evaluation.ID = d.Batch.EvaluationExecutionID
+		if err := insertEvaluation(tx, child); err != nil {
 			return err
 		}
 	}
@@ -353,5 +363,5 @@ func (s *Store) interrupt() error {
 			return fmt.Errorf("mark interrupted: %w", err)
 		}
 	}
-	return nil
+	return s.interruptEvaluations()
 }

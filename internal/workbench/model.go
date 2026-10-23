@@ -37,9 +37,10 @@ type Message struct {
 	Content string `json:"content"`
 }
 type Template struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Messages []Message `json:"messages"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Messages        []Message `json:"messages"`
+	InputContractID string    `json:"input_contract_id,omitempty"`
 }
 type Provider struct {
 	ID            string `json:"id"`
@@ -74,14 +75,15 @@ type Draft struct {
 	Metrics         []MetricSelection `json:"metrics"`
 }
 type State struct {
-	Version     int64        `json:"version"`
-	Cases       []Case       `json:"cases"`
-	Collections []Collection `json:"collections"`
-	Templates   []Template   `json:"templates"`
-	Providers   []Provider   `json:"providers"`
-	Metrics     []Metric     `json:"metrics"`
-	Settings    Settings     `json:"settings"`
-	Draft       Draft        `json:"draft"`
+	Version        int64           `json:"version"`
+	Cases          []Case          `json:"cases"`
+	Collections    []Collection    `json:"collections"`
+	Templates      []Template      `json:"templates"`
+	Providers      []Provider      `json:"providers"`
+	Metrics        []Metric        `json:"metrics"`
+	InputContracts []InputContract `json:"input_contracts"`
+	Settings       Settings        `json:"settings"`
+	Draft          Draft           `json:"draft"`
 }
 type RunInput struct {
 	StateVersion    int64             `json:"state_version"`
@@ -91,7 +93,7 @@ type RunInput struct {
 	ExcludedCaseIDs []string          `json:"excluded_case_ids"`
 	Groups          []Group           `json:"groups"`
 	Concurrency     int               `json:"concurrency"`
-	Metrics         []MetricSelection `json:"metrics"`
+	Metrics         []MetricSelection `json:"metrics,omitempty"`
 }
 type FrozenRequest struct {
 	CaseID             string              `json:"case_id"`
@@ -113,16 +115,23 @@ type FrozenRequest struct {
 	LanguageResolution *LanguageResolution `json:"language_resolution,omitempty"`
 }
 type Snapshot struct {
-	Cases          []SnapshotCase  `json:"cases"`
-	Templates      []Template      `json:"templates"`
-	Providers      []Provider      `json:"providers"`
-	Groups         []Group         `json:"groups"`
-	CaseIDs        []string        `json:"case_ids"`
-	TimeoutSeconds int             `json:"timeout_seconds"`
-	Requests       []FrozenRequest `json:"requests"`
-	Selection      *Selection      `json:"selection,omitempty"`
-	Collections    []Collection    `json:"collections,omitempty"`
-	Metrics        []FrozenMetric  `json:"metrics,omitempty"`
+	Cases          []SnapshotCase          `json:"cases"`
+	Templates      []Template              `json:"templates"`
+	Providers      []Provider              `json:"providers"`
+	Groups         []Group                 `json:"groups"`
+	CaseIDs        []string                `json:"case_ids"`
+	TimeoutSeconds int                     `json:"timeout_seconds"`
+	Requests       []FrozenRequest         `json:"requests"`
+	Selection      *Selection              `json:"selection,omitempty"`
+	Collections    []Collection            `json:"collections,omitempty"`
+	Metrics        []FrozenMetric          `json:"metrics,omitempty"`
+	InputContracts []InputContract         `json:"input_contracts,omitempty"`
+	Evaluation     *FrozenEvaluationConfig `json:"evaluation,omitempty"`
+	// LegacyAfterGenerationEvaluation preserves legacy schema2 snapshot
+	// metadata on read/export. It is never executed or accepted as write
+	// input; generation replay clears it and Evaluation. Stored bytes are not
+	// rewritten; HTTP formatting may normalize whitespace.
+	LegacyAfterGenerationEvaluation json.RawMessage `json:"after_generation_evaluation,omitempty"`
 }
 type Selection struct {
 	CaseIDs         []string `json:"case_ids"`
@@ -130,21 +139,22 @@ type Selection struct {
 	ExcludedCaseIDs []string `json:"excluded_case_ids"`
 }
 type Batch struct {
-	ID            string             `json:"id"`
-	Name          string             `json:"name"`
-	Status        string             `json:"status"`
-	CreatedAt     string             `json:"created_at"`
-	FinishedAt    string             `json:"finished_at"`
-	Total         int                `json:"total"`
-	Completed     int                `json:"completed"`
-	Failed        int                `json:"failed"`
-	Cancelled     int                `json:"cancelled"`
-	Interrupted   int                `json:"interrupted"`
-	InFlight      int                `json:"in_flight"`
-	Concurrency   int                `json:"concurrency"`
-	ReplayOf      string             `json:"replay_of"`
-	Evaluation    EvaluationProgress `json:"evaluation"`
-	MaxModelCalls int                `json:"max_model_calls"`
+	ID                    string             `json:"id"`
+	Name                  string             `json:"name"`
+	Status                string             `json:"status"`
+	CreatedAt             string             `json:"created_at"`
+	FinishedAt            string             `json:"finished_at"`
+	Total                 int                `json:"total"`
+	Completed             int                `json:"completed"`
+	Failed                int                `json:"failed"`
+	Cancelled             int                `json:"cancelled"`
+	Interrupted           int                `json:"interrupted"`
+	InFlight              int                `json:"in_flight"`
+	Concurrency           int                `json:"concurrency"`
+	ReplayOf              string             `json:"replay_of"`
+	Evaluation            EvaluationProgress `json:"evaluation"`
+	MaxModelCalls         int                `json:"max_model_calls"`
+	EvaluationExecutionID string             `json:"evaluation_execution_id,omitempty"`
 }
 type Result struct {
 	ID                string          `json:"id"`

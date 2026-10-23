@@ -2,6 +2,7 @@ import { caseById, collectionById, credentialMeta, hasUnsavedWork, isKnownProtoc
 import { App } from './state.js';
 import { $, batchActive, esc } from './utils.js';
 import { updateDirtyUI } from './shell-view.js';
+import { renderEvaluationControls } from './evaluations.js';
 
 function validateSettings(settings) {
   const errors = [];
@@ -142,7 +143,7 @@ function computeRunPlan() {
   const maxModelCalls = total * metricPlan.modelCount;
   for (const err of validateSettings(App.state.settings)) errors.push(err);
   for (const err of App.settingsError) if (!errors.includes(err)) errors.push(err);
-  if (hasKnownActiveBatch()) warnings.push('已有批次正在运行；同一时间只允许一个批次，启动按钮已禁用。');
+  if (hasKnownActiveBatch()) warnings.push('已有生成或独立评估正在执行；同一时间只允许一个执行，启动与复跑按钮已禁用。');
   return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency, metrics: metricPlan.selected, modelCount: metricPlan.modelCount, maxModelCalls };
 }
 
@@ -152,6 +153,12 @@ function hasKnownActiveBatch() {
   for (const run of App.runs) {
     if (current && run.id === current.id) continue;
     if (batchActive(run)) return true;
+  }
+  const evaluation = App.evaluationDetail?.evaluation;
+  if (evaluation && ['queued', 'running', 'stopping'].includes(evaluation.status)) return true;
+  for (const execution of App.evaluations) {
+    if (execution.id === evaluation?.id) continue;
+    if (['queued', 'running', 'stopping'].includes(execution.status)) return true;
   }
   return false;
 }
@@ -168,13 +175,15 @@ function refreshRunPlan() {
   const disabled = active || App.saving || App.loading || App.mutating || plan.errors.length > 0 || plan.total <= 0;
   btn.disabled = disabled;
   btn.classList.toggle('busy', active);
+  document.querySelectorAll('[data-run-replay]').forEach((button) => { button.disabled = active || App.loading; });
   label.textContent = active
-    ? (stopping ? '停止中…' : '批次运行中')
+    ? (stopping ? '停止中…' : '已有执行进行中')
     : (plan.total > 0 ? `${hasUnsavedWork() ? '保存并运行' : '运行'} ${plan.total} 次` : '运行');
   btn.title = plan.errors.length
     ? `无法运行：${plan.errors[0]}`
-    : (active ? '已有批次运行中；可在运行输出面板查看或停止' : '保存草稿并以当前范围启动批次');
+    : (active ? '已有生成或独立评估执行中；请在对应执行详情查看或停止' : '保存草稿并以当前范围启动批次');
   updateDirtyUI();
+  renderEvaluationControls();
 }
 
 function renderRunValidation(plan) {

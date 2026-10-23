@@ -83,11 +83,24 @@ func validateState(s State) error {
 	if _, err := resolveSelection(s, Selection{CaseIDs: s.Draft.CaseIDs, CollectionIDs: s.Draft.CollectionIDs, ExcludedCaseIDs: s.Draft.ExcludedCaseIDs}); err != nil {
 		return err
 	}
+	contracts := map[string]bool{}
+	for _, c := range s.InputContracts {
+		if contracts[c.ID] {
+			return fmt.Errorf("input contract ids must be unique")
+		}
+		contracts[c.ID] = true
+		if err := validateContract(c); err != nil {
+			return err
+		}
+	}
 	for _, t := range s.Templates {
 		if !validID(t.ID) || templates[t.ID] || strings.TrimSpace(t.Name) == "" || len(t.Messages) == 0 {
 			return fmt.Errorf("templates require unique id, name and messages")
 		}
 		templates[t.ID] = true
+		if t.InputContractID != "" && !contracts[t.InputContractID] {
+			return fmt.Errorf("template input contract not found")
+		}
 		for _, m := range t.Messages {
 			if err := validMessage(m); err != nil {
 				return err
@@ -200,6 +213,9 @@ func renderRequest(s State, caseID string, g Group) (FrozenRequest, error) {
 	if err := validateVariables(c.Variables); err != nil {
 		return f, err
 	}
+	if err := validateCaseContract(s, *t, *c); err != nil {
+		return f, err
+	}
 	resolution := resolveLanguage(*c, g)
 	variables := make(map[string]any, len(c.Variables)+1)
 	for k, v := range c.Variables {
@@ -307,6 +323,21 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 	for _, t := range s.Templates {
 		if templates[t.ID] {
 			snap.Templates = append(snap.Templates, t)
+			if t.InputContractID != "" {
+				found := false
+				for _, existing := range snap.InputContracts {
+					if existing.ID == t.InputContractID {
+						found = true
+					}
+				}
+				if !found {
+					for _, c := range s.InputContracts {
+						if c.ID == t.InputContractID {
+							snap.InputContracts = append(snap.InputContracts, c)
+						}
+					}
+				}
+			}
 		}
 	}
 	for _, p := range s.Providers {
@@ -314,10 +345,15 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 			snap.Providers = append(snap.Providers, p)
 		}
 	}
-	metrics, err := freezeMetrics(s, in.Metrics)
-	if err != nil {
-		return snap, err
+	if len(in.Metrics) > 0 {
+		config, err := freezeEvaluationConfig(s, EvaluationConfig{Metrics: in.Metrics, Concurrency: in.Concurrency})
+		if err != nil {
+			return snap, err
+		}
+		if total > 100000/len(config.Metrics) {
+			return snap, fmt.Errorf("evaluation must contain 1–100000 judgments")
+		}
+		snap.Evaluation = &config
 	}
-	snap.Metrics = metrics
 	return snap, nil
 }

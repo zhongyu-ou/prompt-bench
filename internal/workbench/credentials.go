@@ -13,6 +13,8 @@ import (
 	"unicode"
 )
 
+var errCredentialUnavailable = errors.New("encrypted credential is unavailable; restore matching database and credentials.key")
+
 func validCredential(key string) bool {
 	if key == "" || len(key) > 16384 || strings.TrimSpace(key) != key {
 		return false
@@ -145,7 +147,7 @@ func (s *Store) credential(ref, env string, required bool, getenv func(string) s
 	status := CredentialStatus{ManualSet: exists, EnvAvailable: validCredential(envKey), RequiresAuth: required || exists || env != ""}
 	if err != nil {
 		status.Source = "invalid"
-		return "", status, errors.New("encrypted credential is unavailable; restore matching database and credentials.key")
+		return "", status, errCredentialUnavailable
 	}
 	if exists {
 		status.Source = "manual"

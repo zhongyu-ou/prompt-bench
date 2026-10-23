@@ -21,6 +21,8 @@ import { $ } from './utils.js';
 import { bindHistoryEvents } from './history.js';
 import { configureMutations } from './mutations.js';
 import { bindMetricEvents, renderMetricSelection, renderMetricsView } from './metrics.js';
+import { bindContractEvents, contractEditorDirty } from './contracts.js';
+import { bindEvaluationEvents, refreshEvaluations } from './evaluations.js';
 
 function renderAll() {
   ensureSelections();
@@ -55,6 +57,7 @@ async function bootstrap() {
     setConnection(true);
     renderAll();
     await refreshRuns({ quiet: true });
+    await refreshEvaluations({ quiet: true });
     await resumeActiveRun();
     hideBanner();
   } catch (err) {
@@ -92,6 +95,7 @@ function renderView(view) {
     renderGroupEditor();
   } else if (view === 'history') {
     renderHistoryList();
+    refreshEvaluations({ quiet: true });
     if (!App.runsLoaded) refreshRuns();
   } else if (view === 'metrics') {
     renderMetricsView();
@@ -202,7 +206,7 @@ function bindStaticEvents() {
   document.addEventListener('change', () => markEdit(), true);
 
   window.addEventListener('beforeunload', (e) => {
-    const editorDirty = caseEditorDirty() || groupEditorDirty() || metricEditorDirty();
+    const editorDirty = caseEditorDirty() || groupEditorDirty() || metricEditorDirty() || contractEditorDirty();
     if (hasUnsavedWork() || editorDirty) {
       e.preventDefault();
       e.returnValue = '';
@@ -227,6 +231,8 @@ function bindStaticEvents() {
   bindIOEvents();
   bindRunEvents();
   bindMetricEvents();
+  bindContractEvents();
+  bindEvaluationEvents();
 }
 
 configureNavigation(renderView);

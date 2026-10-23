@@ -324,19 +324,7 @@ func freezeMetrics(s State, selections []MetricSelection) ([]FrozenMetric, error
 	return out, nil
 }
 func evaluationSummary(d Detail) []MetricSummary {
-	out := []MetricSummary{}
-	indexes := map[[2]string]int{}
-	for _, f := range d.Snapshot.Metrics {
-		for _, groupID := range append([]string{""}, metricGroupIDs(d.Snapshot.Groups)...) {
-			key := [2]string{f.Metric.ID, groupID}
-			indexes[key] = len(out)
-			labels := map[string]int{}
-			for _, l := range f.Metric.Labels {
-				labels[l.Label] = 0
-			}
-			out = append(out, MetricSummary{MetricID: f.Metric.ID, GroupID: groupID, Labels: labels})
-		}
-	}
+	out, indexes := metricSummaryEntries(d.Snapshot.Metrics, metricGroupIDs(d.Snapshot.Groups))
 	for _, r := range d.Results {
 		groupIDs := []string{""}
 		if r.GroupID != "" {
@@ -349,58 +337,82 @@ func evaluationSummary(d Detail) []MetricSummary {
 					continue
 				}
 				s := &out[i]
-				switch o.Status {
-				case "completed":
-					s.Valid++
-					switch v := o.Value.(type) {
-					case bool:
-						if v {
-							s.TrueCount++
-						} else {
-							s.FalseCount++
-						}
-					case float64:
-						if s.Min == nil || v < *s.Min {
-							x := v
-							s.Min = &x
-						}
-						if s.Max == nil || v > *s.Max {
-							x := v
-							s.Max = &x
-						}
-						mean := v
-						if s.Mean != nil {
-							count := float64(s.Valid)
-							previous := *s.Mean
-							if math.Signbit(previous) == math.Signbit(v) {
-								mean = previous + (v-previous)/count
-							} else {
-								// Opposite signs can overflow v-previous, while
-								// same-sign sums can overflow a naive sum/count.
-								mean = previous*(float64(s.Valid-1)/count) + v/count
-							}
-						}
-						s.Mean = &mean
-					case string:
-						s.Labels[v]++
-					}
-				case "error":
-					s.Error++
-				case "skipped":
-					s.Skipped++
-				case "cancelled":
-					s.Cancelled++
-				case "interrupted":
-					s.Interrupted++
-				case "pending":
-					s.Pending++
-				case "running":
-					s.Running++
-				}
+				accumulateMetricOutcome(s, o)
 			}
 		}
 	}
 	return out
+}
+func metricSummaryEntries(metrics []FrozenMetric, groups []string) ([]MetricSummary, map[[2]string]int) {
+	out := make([]MetricSummary, 0, len(metrics)*(len(groups)+1))
+	indexes := make(map[[2]string]int, len(metrics)*(len(groups)+1))
+	for _, f := range metrics {
+		for _, groupID := range append([]string{""}, groups...) {
+			indexes[[2]string{f.Metric.ID, groupID}] = len(out)
+			labels := map[string]int{}
+			for _, label := range f.Metric.Labels {
+				labels[label.Label] = 0
+			}
+			out = append(out, MetricSummary{MetricID: f.Metric.ID, GroupID: groupID, Labels: labels})
+		}
+	}
+	return out, indexes
+}
+
+func accumulateMetricOutcome(s *MetricSummary, o MetricOutcome) {
+	if n, ok := o.Value.(json.Number); ok {
+		if v, err := n.Float64(); err == nil {
+			o.Value = v
+		}
+	}
+	switch o.Status {
+	case "completed":
+		s.Valid++
+		switch v := o.Value.(type) {
+		case bool:
+			if v {
+				s.TrueCount++
+			} else {
+				s.FalseCount++
+			}
+		case float64:
+			if s.Min == nil || v < *s.Min {
+				x := v
+				s.Min = &x
+			}
+			if s.Max == nil || v > *s.Max {
+				x := v
+				s.Max = &x
+			}
+			mean := v
+			if s.Mean != nil {
+				count := float64(s.Valid)
+				previous := *s.Mean
+				if math.Signbit(previous) == math.Signbit(v) {
+					mean = previous + (v-previous)/count
+				} else {
+					// Opposite signs can overflow v-previous, while
+					// same-sign sums can overflow a naive sum/count.
+					mean = previous*(float64(s.Valid-1)/count) + v/count
+				}
+			}
+			s.Mean = &mean
+		case string:
+			s.Labels[v]++
+		}
+	case "error":
+		s.Error++
+	case "skipped":
+		s.Skipped++
+	case "cancelled":
+		s.Cancelled++
+	case "interrupted":
+		s.Interrupted++
+	case "pending":
+		s.Pending++
+	case "running":
+		s.Running++
+	}
 }
 func metricGroupIDs(groups []Group) []string {
 	out := make([]string, 0, len(groups))

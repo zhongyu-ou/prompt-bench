@@ -8,6 +8,7 @@ import { setView } from './navigation.js';
 import { setOutputTab } from './output.js';
 import { loadRunIntoOutput, refreshRuns, startPolling } from './runs.js';
 import { showCompare } from './compare.js';
+import { refreshEvaluations } from './evaluations.js';
 
 async function loadHistoryDetail(id) {
   App.historySelectedId = id;
@@ -54,7 +55,7 @@ async function replayRun(id) {
     await loadRunIntoOutput(batch.id);
     startPolling();
     await refreshRuns({ quiet: true });
-    toast(`已按冻结快照创建新批次 #${batch.id}`, 'ok');
+    toast(`已按冻结快照创建仅生成批次 #${batch.id}；不会重新执行评估。`, 'ok');
   } catch (err) {
     if (err.status === 409) {
       showBanner('无法复跑：已有批次正在运行或停止中（服务端 409）。', 'warn');
@@ -68,6 +69,7 @@ async function replayRun(id) {
 
 async function openRunInOutput(id) {
   App.currentRunId = id;
+  App.currentDetail = null;
   App.outputFilter = { group: '', case: '', status: '' };
   App.lastFilterSignature = '';
   setView('workbench', { force: true });
@@ -79,6 +81,7 @@ async function openRunInOutput(id) {
 export function bindHistoryEvents() {
   $('history-refresh-btn').addEventListener('click', async () => {
     await refreshRuns();
+    await refreshEvaluations();
     if (App.historySelectedId) loadHistoryDetail(App.historySelectedId);
     toast('历史已刷新', 'ok', 1600);
   });

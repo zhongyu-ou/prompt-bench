@@ -1,4 +1,6 @@
 const BATCH_STATUS = {
+  queued: '等待生成完成',
+  failed: '失败',
   running: '运行中',
   stopping: '停止中',
   completed: '已完成',

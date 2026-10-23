@@ -35,6 +35,13 @@
 #reload-run-btn { margin-left: auto; }
 #output-metric-filters { display: contents; }
 #output-metric-filters[hidden] { display: none; }
+#evaluation-version { max-width: min(430px, 65vw); }
+.evaluation-feedback { padding: 0 12px; }
+.evaluation-feedback:has(#evaluation-status:empty):has(#evaluation-error:empty) { display: none; }
+.evaluation-feedback #evaluation-status { display: block; padding-top: 6px; }
+.evaluation-feedback .field-error:empty { display: none; }
+#evaluation-progress { width: 180px; height: 7px; margin: 4px 0; }
+#evaluation-round-field[hidden] { display: none; }
 .output-toolbar[hidden] { display: none; }
 .output-panel[hidden] { display: none; }
 .output-panel { min-height: 100px; max-height: 420px; overflow: auto; }
