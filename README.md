@@ -4,12 +4,10 @@ A standalone local prompt workbench with Go `text/template` rendering, editable 
 
 ## Documentation
 
-- [Documentation map](docs/README.md): authoritative sources and maintenance rules.
 - [Glossary](GLOSSARY.md): domain concepts and distinctions.
-- [Architecture](docs/architecture.md): code ownership, execution/storage boundaries and design rationale.
-- [HTTP API](docs/api.md) and [Case API](docs/case-api.md): current client contracts.
-- [Verification](docs/verification.md): checks and isolated fixture workflows without paid services.
-- [Migration evidence](docs/evidence/migrations.md) and [validation evidence](docs/evidence/validation.md): scoped historical observations, not proof of the current revision.
+- [Architecture](docs/architecture/overview.md): current structure, responsibilities and cross-module constraints, with links to consequential decisions.
+- [Client contract](docs/architecture/client-contract.md): current state, credential, input-contract, Case/import/export, generation and evaluation HTTP contracts.
+- [Repository guidelines](AGENTS.md): implementation invariants and documentation maintenance.
 
 This README covers user operations and UI workflows. The application lives in `internal/workbench/`; `main.go` is the process entry and `web/` contains embedded native JavaScript/CSS. There is no frontend build. Documentation describes repository behavior, not the deployment or health of a running service.
 
@@ -77,7 +75,7 @@ Initial state contains four example ASR input Cases and an embedded `seed.tmpl`;
 - Manage run data, collections and temporary exclusions in **Case 库**, not in the workbench. The workbench shows the applied scope and a link back to its controls. Global concurrency and default repeats are edited only in **全局设置**; changing default repeats does not rewrite existing configurations.
 - Result previews in both workbench and history use 输出 / 请求 / 响应 / 详情 tabs, with 评估 available for judgments in the selected evaluation version. Evaluation stays in the existing output table, result preview and summary; there is no standalone evaluation tab or workspace. The version selector switches all three views together, including original inline judgments where present, without combining versions. JSON is formatted, highlighted and wrapped by default; the copy icon copies the full original content, not the clipped display or reserialized numbers. Plain or malformed JSON remains text.
 - Each group owns exact raw-source language routes and custom target key/name descriptors. `zh-CN` does not match `zh`. Unmatched sources always use English (`en`), including en→en without a rule. Effective target maps are injected at render time; several targets still mean one request.
-- Import defaults to **Eve / Vocat 变量**: paste a variables object directly, a JSON array, or one object per JSONL line; no header or ID is needed. The data-format selector also accepts exported **Promptbench 标准包** with optional collection relationships. Both paths preview new/existing inputs and only add/reuse by full input fingerprint (object key order only), never update by ID. Membership export never expands selected Cases through shared collections. Examples and exact endpoints are in [docs/case-api.md](docs/case-api.md).
+- Import defaults to **Eve / Vocat 变量**: paste a variables object directly, a JSON array, or one object per JSONL line; no header or ID is needed. The data-format selector also accepts exported **Promptbench 标准包** with optional collection relationships. Both paths preview new/existing inputs and only add/reuse by full input fingerprint (object key order only), never update by ID. Membership export never expands selected Cases through shared collections. Examples and exact endpoints are in the [client contract](docs/architecture/client-contract.md).
 - One active execution at a time (generation or independent evaluation), with 1–20 concurrent calls. Start/replay is disabled while any execution is queued/running/stopping, and the server rejects conflicting starts with 409. Manual evaluation requires a terminal source generation batch. No automatic retries or outbound redirects.
 - Refreshing/closing the browser does not stop backend execution. Generation and independent evaluation each own their status, progress and Stop action; stopping an evaluation preserves its source outputs and completed judgments. Issued calls finish and persist, while unissued work is cancelled.
 - Every generation attempt is visible as pending/running/completed/failed/cancelled/interrupted. History preserves frozen input sources, input contract definitions, endpoint, requested/returned model identities, parameter presence, rendered request bytes, raw response, errors and duration. Evaluation judgments are not an implicit generation pass/fail gate.
@@ -105,7 +103,7 @@ go build -o promptbench .
 ./promptbench --config config/config.yml
 ```
 
-PostgreSQL is the only runtime/test backend. Empty schemas initialize atomically; nonempty unversioned and unsupported schemas are rejected, never reset. Physical schema version is separate from optimistic `state.version`. Existing SQLite files require a separately verified one-time offline migration; the application does not open or upgrade them. See [storage and migration](docs/architecture.md#storage-and-migration) for the current schema and frozen-history guarantees.
+PostgreSQL is the only runtime/test backend. Empty schemas initialize atomically; nonempty unversioned and unsupported schemas are rejected, never reset. Physical schema version is separate from optimistic `state.version`. Existing SQLite files require a separately verified one-time offline migration; the application does not open or upgrade them. See [storage and migration](docs/architecture/overview.md#storage-and-migration) for the current schema and frozen-history guarantees.
 
 One physical PG session serializes transactions and holds the advisory lock. Connect directly or through **session pooling**, never transaction pooling. If that session is lost, the process refuses reconnection and further dispatch; restart to reacquire the lock and recover unfinished work. Unspecified connection/statement timeouts default to 5/30 seconds.
 
@@ -115,11 +113,53 @@ Limits: 8 MiB inbound JSON, 1 MiB rendered content per message, 16 MiB captured 
 
 ## Development checks
 
-Use `make help` for targets. Go 1.25+ and Node.js LTS are required for checks; backend tests also require an explicitly configured PostgreSQL database ending in `_test`, never the application database.
+Use `make help` for targets. Go 1.25+ and Node.js LTS are required for checks; there is no npm/Bun build workflow. Backend tests require a dedicated PostgreSQL database whose name ends in `_test`, never the application database or a renamed copy of it. Tests create random per-test schemas and private temporary keys, then close their stores before dropping only their own schemas; the test role needs schema creation/deletion privileges and, for session-loss tests, permission to terminate its own test connections.
 
-`make ci-check` checks formatting, lint and Go compilation without a database or source edits. `make check` **formats files in place** before lint, compilation and tests. GitHub Actions runs only `make ci-check`, not database tests or deployment.
+Configure the private test connection from the public example:
 
-See [Verification](docs/verification.md) for the command table, test database setup, race checks and isolated browser/fixture workflows.
+```sh
+cp .env.test.example .env.test
+chmod 600 .env.test
+# Privately edit it to name a dedicated _test database; never commit it.
+make ci-check
+make test
+make test-race
+```
+
+`PROMPTBENCH_TEST_DATABASE_URL` is mandatory; missing/unsafe settings fail, never skip or load application configuration. Make loads trusted shell-compatible `.env.test` only when that environment variable is empty; direct `go test` requires the variable explicitly. URL-encode special characters in DSN credentials. Do not copy real `.env`, application YAML, keys or backups into tests.
+
+| Command | Coverage / side effects |
+| --- | --- |
+| `make ci-check` | Non-mutating Go formatting check, Go vet, JS syntax and Go compilation; no database tests |
+| `make test-backend` | Go tests using isolated PostgreSQL schemas |
+| `make test-frontend` | Node built-in browser-module tests; no database or visual verification |
+| `make test` | Backend and frontend tests |
+| `make test-race` | Go race tests, then frontend tests |
+| `make check` | **Formats Go files in place**, then lint, compilation and tests |
+| `make build` | Builds `./promptbench`, including embedded assets |
+
+GitHub Actions runs only `make ci-check`, not database tests or deployment. A focused `go test ./internal/workbench -run TestName -count=1` still needs the test DSN when that test opens storage. Report checks actually run and their limitations; compilation, old reports and fixture success are not proof of real-provider access or model quality.
+
+### Isolated fixture workflow
+
+Create another empty PostgreSQL smoke database and a permission-0600 YAML outside the repository using `config/config.example.yml` as the structure. Point it only at that new database, and use a new private key directory. Do not share the smoke database between application processes or use `database/` as a fixture.
+
+In separate terminals:
+
+```sh
+go run ./cmd/fixture --listen 127.0.0.1:9797 --delay 150ms
+go run . --config /path/to/private-smoke.yml --listen 127.0.0.1:8788 --data-dir /path/to/new-private-smoke-key-dir
+```
+
+Direct `go run .` does not load `.env`; ensure it also inherits no real Provider keys. After changing embedded browser assets, restart/rebuild before refreshing. In the UI, add an anonymous OpenAI Chat Completions Provider at `http://127.0.0.1:9797/v1`, with no credential env name. Enable only its group, choose one Case and one repeat, and inspect the preview/count before running.
+
+- An ordinary model name returns a clearly labeled local fixture response and a returned model name ending in `-fixture-returned`.
+- `fixture-http-error` returns HTTP 422; `fixture-invalid-json` returns HTTP 200 with malformed JSON. Inspect persisted failure details and export.
+- Increase `--delay` to exercise progress and Stop: issued calls finish, unissued work cancels. Refresh/history/replay should preserve frozen request bytes, even after current configuration edits.
+- For credential-only smoke, use synthetic `PROMPTBENCH_FIXTURE_MANUAL_KEY` / `PROMPTBENCH_FIXTURE_ENV_KEY` in the fixture and corresponding fake application values. Models `fixture-auth-manual` / `fixture-auth-env` verify manual override then env fallback; wrong auth returns 401. Confirm the synthetic keys never appear in GET/history/export.
+- The fixture implements only `/v1/chat/completions`, not Typesafe `/systemone`. Code metrics can judge its output; browser model-metric verification needs a separate synthetic decision fixture. Backend decision transport uses local `httptest` fixtures. Do not claim a generation/code-metric smoke establishes decision transport or model quality.
+
+Exercise affected browser flows with isolated data for UI changes; Node tests are not visual checks. Clean up only processes, databases, schemas and temporary files created for the smoke. Never reset normal data to bypass failures.
 
 ## Docker Compose (Linux)
 

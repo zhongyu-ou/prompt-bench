@@ -4,7 +4,7 @@
 
 Promptbench is a single-user, loopback-only prompt workbench with prepared Case inputs, Go prompt templates, explicit comparison groups, Providers, reusable metrics and durable history. Text generation and independent evaluation have separate records and lifecycles. User-configured judgments are not an implicit generation pass/fail gate; fixtures do not establish real model quality.
 
-Read [docs/README.md](docs/README.md) for the documentation map and lifecycle, [GLOSSARY.md](GLOSSARY.md) before changing domain concepts, and only the contracts relevant to the change. The root [README](README.md) owns user operations; [architecture](docs/architecture.md) owns module responsibilities and consequential design rationale; [API](docs/api.md) and [Case API](docs/case-api.md) own current client semantics. Code/document conflicts must be resolved in the same change, not hidden with a dated correction at the end.
+Read the root [README](README.md) for operations, checks and document navigation, [GLOSSARY](GLOSSARY.md) before changing concepts, and only the contracts relevant to the change. [Architecture](docs/architecture/overview.md) owns current responsibilities and cross-module constraints; its linked ADRs own consequential decisions and reasons. The [client contract](docs/architecture/client-contract.md) owns current HTTP semantics, including Cases and import/export. Resolve code/document conflicts in the same change, not with a dated correction appended later.
 
 ## Code ownership
 
@@ -31,7 +31,7 @@ Read [docs/README.md](docs/README.md) for the documentation map and lifecycle, [
 
 ## Commands and runtime safety
 
-Use [Verification](docs/verification.md) for the command table, test setup and isolated smoke procedures; use the root README for launch flags, configuration, backups and Docker operation.
+Use the root [README](README.md#development-checks) for commands, safe test database configuration and isolated fixture steps, and its operation sections for launch flags, backups and Docker.
 
 - Go 1.25+ is required; Node.js LTS is needed for JavaScript lint/tests, not asset building.
 - `make ci-check` is the non-mutating formatting/lint/compile check and the GitHub Actions entry. `make check` runs `gofmt -w` first: do not use it when unrelated source formatting must remain untouched.
@@ -51,8 +51,12 @@ Use [Verification](docs/verification.md) for the command table, test setup and i
 
 ## Documentation closeout
 
-Maintain current knowledge in place and link its owner; do not copy contract text or module lists into task records. Use `docs/tasks/<bounded-change>.md` only for unfinished work needing a handoff, with current state and next action. Approved but unimplemented designs stay there, not in current API documentation.
-
-When a task completes, migrate durable facts to their owners, retain necessary evidence and remove the completed task after its unique information is preserved. New requirements get separate tasks. Do not create an empty backlog or turn verification limitations into product requirements.
-
-Routine verification results belong in the response/change report, not a growing `*-check.md`. Persistent evidence is reserved for a real handoff, comparison, migration or audit need and belongs under `docs/evidence/`, with scope and limitations. Preserve irreplaceable migration evidence and available historical images; do not claim unavailable artifacts were restored. Check local links and anchors after reorganizing documents. See the documentation map for the complete retention policy.
+- Give each durable fact one owner: operations and checks in README, concepts in GLOSSARY, current structure/constraints in the architecture overview, HTTP semantics in the client contract, and consequential decisions in ADRs. Other documents link rather than copy field contracts, module inventories or verification logs. Maintain current facts in place; do not append execution history.
+- Documents describe repository behavior, not current deployment, process health or user inventory. Source/tests establish implementation, while current contracts establish intended behavior; resolve disagreements explicitly rather than promoting a bug or an unimplemented proposal into the contract.
+- Keep approved but unimplemented behavior out of current contracts. Use `docs/tasks/<bounded-change>.md` only when unfinished work needs handoff; record current scope, confirmed choices/sources, open questions and next action rather than copied contracts or rounds of discussion. No task document is required for self-contained work.
+- At completion, migrate still-valid knowledge to its owners and remove completed task material. A new requirement starts new bounded work. Verification limits or unperformed deployment do not create product requirements or authorize operations; do not create empty backlogs or retrospective change reports.
+- Do not invent historical decision dates, approvals or universal claims from version-specific probes. ADRs record costly/surprising choices with real alternatives; no ADR index or template is required.
+- Report actual verification results and limits in the response or change delivery by default; do not automatically create evidence documents, migration narratives or validation ledgers. Persist execution material only for an explicit audit/retention requirement or a concrete unresolved investigation, with a defined purpose and scope. Keeping an artifact does not make it part of default project context.
+- Start investigations from current requirements, contracts, code, data and reproducible behavior. Consult relevant commits or historical artifacts only for a specific question that current state cannot answer. Old successful checks do not prove current correctness.
+- Removing narrative documentation does not authorize deleting real backups, user data, images or original runtime artifacts. Never access secrets, live databases or backups merely to tidy documentation.
+- After reorganizing documents, check local links and heading anchors. Keep the cleanup's own execution report out of permanent documentation.
