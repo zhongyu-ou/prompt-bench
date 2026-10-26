@@ -34,7 +34,7 @@ function sameValue(a, b) {
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === 'object') {
-    const out = {};
+    const out = Object.create(null);
     for (const key of Object.keys(value).sort()) out[key] = stableValue(value[key]);
     return out;
   }
@@ -94,9 +94,17 @@ function shortId(id) {
   return s.length > 8 ? s.slice(0, 8) : s;
 }
 
-function currentTextOf(c) {
-  const v = c && c.variables && typeof c.variables === 'object' ? c.variables.CurrentText : undefined;
-  return typeof v === 'string' ? v : '';
+function caseTextOf(c) {
+  const variables = c && c.variables && typeof c.variables === 'object' ? c.variables : {};
+  if (hasOwn(variables, 'CurrentText') && typeof variables.CurrentText === 'string' && variables.CurrentText.trim()) {
+    return variables.CurrentText;
+  }
+  for (const key of Object.keys(variables).sort()) {
+    if (key !== 'SourceLanguage' && typeof variables[key] === 'string' && variables[key].trim()) {
+      return variables[key];
+    }
+  }
+  return '';
 }
 
 function excerptText(text, max = 44) {
@@ -117,4 +125,4 @@ function uniqueId(prefix, ids) {
   return `${prefix}${n}`;
 }
 
-export { $, attemptLabel, batchActive, clampInt, clipText, clone, currentTextOf, esc, excerptText, fmtClock, fmtDateTime, fmtDuration, fmtTime, hasOwn, pretty, sameValue, shortId, sourceLanguageOf, stableStringify, statusLabel, uniqueId };
+export { $, attemptLabel, batchActive, caseTextOf, clampInt, clipText, clone, esc, excerptText, fmtClock, fmtDateTime, fmtDuration, fmtTime, hasOwn, pretty, sameValue, shortId, sourceLanguageOf, stableStringify, statusLabel, uniqueId };

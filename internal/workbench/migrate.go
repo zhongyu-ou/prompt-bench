@@ -1,12 +1,21 @@
 package workbench
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 )
 
-const postgresSchemaVersion = 1
+func migrateEvaluations(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE evaluations (id TEXT PRIMARY KEY, generation_run_id TEXT NOT NULL REFERENCES batches(id), created_at TEXT NOT NULL, summary BYTEA NOT NULL, snapshot BYTEA NOT NULL)`); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`CREATE TABLE evaluation_outcomes (evaluation_id TEXT NOT NULL REFERENCES evaluations(id), seq INTEGER NOT NULL, result_id TEXT NOT NULL REFERENCES results(id), metric_id TEXT NOT NULL, round INTEGER NOT NULL, data BYTEA NOT NULL, PRIMARY KEY(evaluation_id,result_id,metric_id,round), UNIQUE(evaluation_id,seq))`)
+	return err
+}
+
+const postgresSchemaVersion = 2
 
 func (s *Store) migrate() error {
 	tx, err := s.db.Begin()
@@ -33,7 +42,14 @@ func (s *Store) migrate() error {
 		if version > postgresSchemaVersion {
 			return errors.New("database schema is newer than this Promptbench binary supports; use a newer binary")
 		}
-		if version != postgresSchemaVersion {
+		if version == 1 {
+			if err := migrateEvaluations(tx); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE schema_version SET version=2 WHERE id=1"); err != nil {
+				return err
+			}
+		} else if version != postgresSchemaVersion {
 			return fmt.Errorf("unsupported PostgreSQL schema version %d", version)
 		}
 		return tx.Commit()
@@ -68,6 +84,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if _, err = tx.Exec("INSERT INTO state(id,version,data) VALUES(1,$1,$2)", state.Version, data); err != nil {
+		return err
+	}
+	if err := migrateEvaluations(tx); err != nil {
 		return err
 	}
 	if _, err = tx.Exec("INSERT INTO schema_version(id,version) VALUES(1,$1)", postgresSchemaVersion); err != nil {

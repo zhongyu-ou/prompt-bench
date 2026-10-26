@@ -15,6 +15,7 @@
 }
 @media (max-width: 820px) {
   .wb-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-card #message-content { flex: none; min-height: 340px; height: min(50vh, 480px); }
   .app-header { height: 56px; padding: 0 14px; }
   .app-shell { display: block; min-height: calc(100vh - 56px); }
   .sidebar {
@@ -39,7 +40,6 @@
   .toolbar-actions { width: 100%; }
   .basic-grid, .param-grid { grid-template-columns: 1fr; }
   .case-editor-grid { gap: 18px; }
-  .extra-row { grid-template-columns: 100px auto minmax(0, 1fr); row-gap: 6px; }
   .extra-add { grid-template-columns: 1fr; }
   .route-row, .route-fallback { grid-template-columns: 130px 20px minmax(0, 1fr) 30px; }
   .case-save-bar { position: static; }

@@ -1,6 +1,6 @@
 import { App } from './state.js';
 import { apiPost } from './api.js';
-import { $, clone, currentTextOf, esc, excerptText, shortId, sourceLanguageOf, stableStringify } from './utils.js';
+import { $, caseTextOf, clone, esc, excerptText, shortId, sourceLanguageOf, stableStringify } from './utils.js';
 import { showBanner, toast } from './feedback.js';
 import { reloadFromServer } from './persistence.js';
 import { caseById, collectionById, markEdit, resolveSelection } from './model.js';
@@ -201,7 +201,7 @@ function renderSelectionPanel() {
     return `<div class="range-preview-row">
       <span class="mono range-case-id">${esc(shortId(id))}</span>
       <span class="mono range-source">${esc(sourceLanguageOf(c) || '—')}</span>
-      <span class="range-text" title="${esc(currentTextOf(c))}">${esc(excerptText(currentTextOf(c), 30) || '（无 CurrentText）')}</span>
+      <span class="range-text" title="${esc(caseTextOf(c))}">${esc(excerptText(caseTextOf(c), 30) || '（无文本字段）')}</span>
       <button type="button" class="icon-btn tiny-icon" data-range-exclude="${esc(id)}" title="${excluded ? '取消排除' : '本次临时排除'}" ${excluded ? 'disabled' : ''}>
         <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.6 10S5.5 4.9 10 4.9 17.4 10 17.4 10 14.5 15.1 10 15.1 2.6 10 2.6 10z"/><circle cx="10" cy="10" r="2.1"/><path d="M4 16 16 4"/></svg>
       </button>

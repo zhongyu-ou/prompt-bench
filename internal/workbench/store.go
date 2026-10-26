@@ -229,6 +229,13 @@ func (s *Store) create(d Detail) error {
 			return err
 		}
 	}
+	if d.Snapshot.Evaluation != nil {
+		child := newEvaluation(d.Batch.Name+" · evaluation", d.Batch.ID, "", *d.Snapshot.Evaluation, d.Snapshot.TimeoutSeconds)
+		child.Evaluation.ID = d.Batch.EvaluationExecutionID
+		if err := insertEvaluation(tx, child); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 func (s *Store) update(batch Batch, results ...Result) error {
@@ -353,5 +360,5 @@ func (s *Store) interrupt() error {
 			return fmt.Errorf("mark interrupted: %w", err)
 		}
 	}
-	return nil
+	return s.interruptEvaluations()
 }

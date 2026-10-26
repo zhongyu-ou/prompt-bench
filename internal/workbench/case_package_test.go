@@ -409,19 +409,18 @@ func TestCasePackageFileIDNeverUpdatesExistingCase(t *testing.T) {
 	}
 }
 
-func TestEveVocatImportObjectsAndNumberFidelity(t *testing.T) {
-	first := `{"CurrentText":"帮我 schedule 一下明天的 meeting。","SourceLanguage":"zh-CN","PriorText":"","ReplacementMap":"","large":9007199254740993,"nested":{"n":1.2300e+2},"values":[1.0,null]}`
-	second := `{"CurrentText":"second","SourceLanguage":"en"}`
+func TestTemplateVariablesImportObjectsAndNumberFidelity(t *testing.T) {
+	first := `{"text":"帮我 schedule 一下明天的 meeting。","large":9007199254740993,"decimal":1.00,"nested":{"n":1.2300e+2},"values":[1.0,null,false],"nil":null,"__proto__":{"safe":true}}`
 	for _, tc := range []struct {
 		name, format, content string
 		count                 int
 	}{
 		{"object", "json", first, 1},
-		{"array", "json", "[" + first + "," + second + "]", 2},
-		{"jsonl", "jsonl", "\n" + first + "\n \n" + second + "\n", 2},
+		{"array", "json", "[" + first + ",{}]", 2},
+		{"jsonl", "jsonl", "\n" + first + "\n \n{}\n", 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := parseCaseImport("eve-vocat", tc.format, tc.content)
+			p, err := parseCaseImport("variables", tc.format, tc.content)
 			if err != nil || len(p.Cases) != tc.count || len(p.Collections) != 0 {
 				t.Fatalf("parse = %#v, %v", p, err)
 			}
@@ -429,9 +428,11 @@ func TestEveVocatImportObjectsAndNumberFidelity(t *testing.T) {
 				if c.ID != fmt.Sprintf("row-%d", i+1) {
 					t.Fatalf("row ID = %q", c.ID)
 				}
-			}
-			if p.Cases[len(p.Cases)-1].Variables["PriorText"] != "" || p.Cases[len(p.Cases)-1].Variables["ReplacementMap"] != "" {
-				t.Fatal("missing optional fields were not defaulted to empty strings")
+				for _, key := range []string{"CurrentText", "SourceLanguage", "PriorText", "ReplacementMap"} {
+					if _, found := c.Variables[key]; found {
+						t.Fatalf("import injected %s into row %d", key, i+1)
+					}
+				}
 			}
 			if !reflect.DeepEqual(p.Cases[0].Variables, packageTestVariables(t, first)) {
 				t.Fatalf("variables changed: %#v", p.Cases[0].Variables)
@@ -439,101 +440,129 @@ func TestEveVocatImportObjectsAndNumberFidelity(t *testing.T) {
 			if n, ok := p.Cases[0].Variables["large"].(json.Number); !ok || n.String() != "9007199254740993" {
 				t.Fatalf("large number changed: %#v", p.Cases[0].Variables["large"])
 			}
-			encoded := packageTestContent(t, p, "json")
-			roundTrip, err := parseCaseImport("package", "json", encoded)
-			if err != nil || !reflect.DeepEqual(roundTrip, p) {
-				t.Fatalf("package round trip = %#v, %v", roundTrip, err)
+			if tc.count == 2 && len(p.Cases[1].Variables) != 0 {
+				t.Fatalf("empty variables object changed: %#v", p.Cases[1])
+			}
+			for _, format := range []string{"json", "jsonl"} {
+				roundTrip, err := parseCaseImport("package", format, packageTestContent(t, p, format))
+				if err != nil || !reflect.DeepEqual(roundTrip, p) {
+					t.Fatalf("%s package round trip = %#v, %v", format, roundTrip, err)
+				}
 			}
 		})
 	}
 	for _, format := range []string{"json", "jsonl"} {
-		rows := []string{
-			`{"CurrentText":"same","SourceLanguage":"en","value":1}`,
-			`{"CurrentText":"same","SourceLanguage":"en","value":1.0}`,
-			`{"CurrentText":"same","SourceLanguage":"en","value":1e0}`,
-		}
+		rows := []string{`{"value":1}`, `{"value":1.0}`, `{"value":1e0}`, `{}`, `{"PriorText":""}`}
 		content := strings.Join(rows, "\n")
 		if format == "json" {
 			content = "[" + strings.Join(rows, ",") + "]"
 		}
-		p, err := parseCaseImport("eve-vocat", format, content)
+		p, err := parseCaseImport("variables", format, content)
 		if err != nil {
 			t.Fatal(err)
 		}
 		plan, err := planCasePackageImport(State{}, p, nil)
-		if err != nil || plan.Preview.NewCount != 3 {
-			t.Fatalf("number lexemes collapsed: %#v, %v", plan, err)
+		if err != nil || plan.Preview.NewCount != len(rows) {
+			t.Fatalf("number lexemes or absent/empty fields collapsed: %#v, %v", plan, err)
+		}
+		for _, row := range plan.Preview.Cases {
+			got := packageTestVariables(t, row.VariablesJSON)
+			if !reflect.DeepEqual(got, row.Variables) {
+				t.Fatalf("variables_json changed values: %s", row.VariablesJSON)
+			}
 		}
 	}
-}
-
-func TestEveVocatImportRejectsInvalidInputs(t *testing.T) {
-	for _, content := range []string{"", " ", "null", "true", "42", `"text"`, "[]", "[null]", "[{} , 1]", `{"TargetLanguageNameMap":null}`, `[{},{"TargetLanguageNameMap":{}}]`, "{} {}", "[{}"} {
-		if _, err := parseCaseImport("eve-vocat", "json", content); err == nil {
-			t.Errorf("accepted JSON %q", content)
-		}
-	}
-	for _, content := range []string{"", "\n \n", "null", "[]", "{}\n42", "{} {}\n", "{}\n{\"TargetLanguageNameMap\":{}}"} {
-		if _, err := parseCaseImport("eve-vocat", "jsonl", content); err == nil {
-			t.Errorf("accepted JSONL %q", content)
-		}
-	}
-	for _, tc := range []struct{ inputFormat, format string }{{"unknown", "json"}, {"eve-vocat", "yaml"}, {"", "json"}, {"package", "json"}} {
-		if _, err := parseCaseImport(tc.inputFormat, tc.format, `{}`); err == nil {
-			t.Errorf("accepted input_format=%q format=%q", tc.inputFormat, tc.format)
-		}
-	}
-	for _, content := range []string{
-		`{}`,
-		`{"CurrentText":"text"}`,
-		`{"SourceLanguage":"en"}`,
-		`{"CurrentText":"","SourceLanguage":"en"}`,
-		`{"CurrentText":" \n","SourceLanguage":"en"}`,
-		`{"CurrentText":null,"SourceLanguage":"en"}`,
-		`{"CurrentText":42,"SourceLanguage":"en"}`,
-		`{"CurrentText":"text","SourceLanguage":" "}`,
-		`{"CurrentText":"text","SourceLanguage":null}`,
-		`{"CurrentText":"text","SourceLanguage":42}`,
-	} {
+	// Template fields carry no requiredness or string schema. SourceLanguage is
+	// the existing optional routing field and remains a string when supplied.
+	for _, content := range []string{`{}`, `{"CurrentText":null}`, `{"CurrentText":42}`, `{"CurrentText":false}`, `{"CurrentText":[]}`, `{"CurrentText":{}}`, `{"SourceLanguage":""}`, `{"SourceLanguage":" \n"}`} {
 		for _, format := range []string{"json", "jsonl"} {
-			if _, err := parseCaseImport("eve-vocat", format, content); err == nil {
-				t.Errorf("accepted missing/invalid required field: %s %q", format, content)
+			if _, err := parseCaseImport("variables", format, content); err != nil {
+				t.Errorf("rejected valid variables %s %q: %v", format, content, err)
 			}
 		}
 	}
 }
 
-func TestEveVocatAPIAtomicityDedupAndStaleVersion(t *testing.T) {
-	h := newHarness(t, nil)
-	base := h.view()
-	input := casePackageImportInput{
-		StateVersion: base.Version, InputFormat: "eve-vocat", Format: "json",
-		Content: `[{"CurrentText":"raw-import-unique","SourceLanguage":"en","n":1.00},{"n":1.00,"CurrentText":"raw-import-unique","SourceLanguage":"en","PriorText":"","ReplacementMap":""}]`,
+func TestTemplateVariablesImportRejectsInvalidInputs(t *testing.T) {
+	for _, content := range []string{"", " ", "null", "true", "42", `"text"`, "[]", "[null]", "[{} , 1]", `{"TargetLanguageNameMap":null}`, `[{},{"TargetLanguageNameMap":{}}]`, `{"SourceLanguage":null}`, `{"SourceLanguage":42}`, "{} {}", "[{}"} {
+		if _, err := parseCaseImport("variables", "json", content); err == nil {
+			t.Errorf("accepted JSON %q", content)
+		}
 	}
-	var preview casePackagePreview
-	h.api("POST", "/api/cases/import/preview", input, 200, &preview)
-	if preview.NewCount != 1 || preview.ExistingCount != 1 || len(preview.Cases) != 2 || preview.Cases[0].FileID != "row-1" || preview.Cases[1].FileID != "row-2" {
-		t.Fatalf("preview = %#v", preview)
+	for _, content := range []string{"", "\n \n", "null", "[]", "{}\n42", "{} {}\n", "{}\n{\"TargetLanguageNameMap\":{}}", "{}\n{\"SourceLanguage\":false}"} {
+		if _, err := parseCaseImport("variables", "jsonl", content); err == nil {
+			t.Errorf("accepted JSONL %q", content)
+		}
+	}
+	for _, tc := range []struct{ inputFormat, format string }{{"unknown", "json"}, {"eve-vocat", "json"}, {"variables", "yaml"}, {"", "json"}, {"package", "json"}} {
+		if _, err := parseCaseImport(tc.inputFormat, tc.format, `{}`); err == nil {
+			t.Errorf("accepted input_format=%q format=%q", tc.inputFormat, tc.format)
+		}
+	}
+	for _, tc := range []struct{ format, content, location string }{
+		{"json", `[{},{"SourceLanguage":null}]`, "row 2"},
+		{"json", `[{},{"TargetLanguageNameMap":{}}]`, "row 2"},
+		{"jsonl", "{}\n\n42", "JSONL line 3"},
+		{"jsonl", "{}\n{\"SourceLanguage\":[]}", "JSONL line 2"},
+	} {
+		if _, err := parseCaseImport("variables", tc.format, tc.content); err == nil || !strings.Contains(err.Error(), tc.location) {
+			t.Errorf("missing location %q: %v", tc.location, err)
+		}
+	}
+	broken := State{Templates: []Template{{
+		ID: "broken", Name: "Broken template",
+		Messages: []Message{{Role: "user", Content: "{{"}},
+	}}}
+	_, err := importTemplateInputs(broken, casePackageImportInput{InputFormat: "variables", TemplateID: "broken"})
+	if err == nil || !strings.Contains(err.Error(), "Broken template") || !strings.Contains(err.Error(), "broken") {
+		t.Fatalf("syntax error lost template identity: %v", err)
+	}
+}
+
+func TestTemplateVariablesAPIGuidanceLosslessAndReuse(t *testing.T) {
+	h := newHarness(t, nil)
+	s := fixtureState("http://127.0.0.1:1")
+	s.Cases, s.Collections, s.Providers = []Case{}, []Collection{}, []Provider{}
+	s.Draft = Draft{}
+	s.Templates = []Template{
+		{ID: "a", Name: "Text", Messages: []Message{{Role: "user", Content: "{{.CurrentText}} / {{.PriorText}}"}}},
+		{ID: "b", Name: "Context", Messages: []Message{{Role: "user", Content: "{{.text}} / {{.context}}"}}},
+		{ID: "dynamic", Name: "Dynamic", Messages: []Message{{Role: "user", Content: "{{index . .KeyName}}"}}},
+		{ID: "structured", Name: "History", Messages: []Message{{Role: "user", Content: "{{range .History}}{{.Content}}{{end}}"}}},
+	}
+	s = h.save(s)
+	base := h.view()
+	content := `{"text":"hello","large":9007199254740993,"decimal":1.00,"obj":{"n":1.2300e+2},"nil":null,"__proto__":"safe"}`
+	input := casePackageImportInput{StateVersion: base.Version, InputFormat: "variables", TemplateID: "a", Format: "json", Content: "[" + content + "," + content + "]"}
+	wantVariables := packageTestVariables(t, content)
+	wantJSON, err := caseInputFingerprint(wantVariables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id      string
+		keys    []string
+		dynamic bool
+	}{
+		{"a", []string{"CurrentText", "PriorText"}, false},
+		{"b", []string{"context", "text"}, false},
+		{"dynamic", []string{"KeyName"}, true},
+		{"structured", []string{"History"}, false},
+	} {
+		input.TemplateID = tc.id
+		var preview casePackagePreview
+		h.api("POST", "/api/cases/import/preview", input, 200, &preview)
+		if preview.StateVersion != base.Version || preview.NewCount != 1 || preview.ExistingCount != 1 || len(preview.Cases) != 2 || preview.TemplateID != tc.id || !reflect.DeepEqual(preview.InputKeys, tc.keys) || preview.DynamicInputs != tc.dynamic {
+			t.Fatalf("preview for %s = %#v", tc.id, preview)
+		}
+		for _, row := range preview.Cases {
+			if row.VariablesJSON != wantJSON || !reflect.DeepEqual(row.Variables, wantVariables) {
+				t.Fatalf("template %s rewrote variables: %#v", tc.id, row)
+			}
+		}
 	}
 	if got := h.view(); !reflect.DeepEqual(got.State, base.State) {
-		t.Fatal("preview wrote state")
-	}
-	for _, path := range []string{"/api/cases/import/preview", "/api/cases/import"} {
-		for _, content := range []string{`[{"CurrentText":"valid-before-bad","SourceLanguage":"en"},null]`, `[{"CurrentText":"valid-before-bad","SourceLanguage":"en"},{"CurrentText":"missing-language"}]`, `[{},{"TargetLanguageNameMap":{}}]`} {
-			bad := input
-			bad.Content = content
-			h.api("POST", path, bad, 400, nil)
-		}
-		bad := input
-		bad.CollectionIDs = []string{"missing-target"}
-		h.api("POST", path, bad, 400, nil)
-		bad = input
-		bad.StateVersion--
-		bad.InputFormat, bad.Content = "unknown", "invalid"
-		h.api("POST", path, bad, 409, nil)
-		if got := h.view(); !reflect.DeepEqual(got.State, base.State) {
-			t.Fatalf("failed %s wrote state", path)
-		}
+		t.Fatal("template-guided preview wrote state")
 	}
 	var committed struct {
 		State         StateView         `json:"state"`
@@ -541,21 +570,169 @@ func TestEveVocatAPIAtomicityDedupAndStaleVersion(t *testing.T) {
 		ExistingCount int               `json:"existing_count"`
 		CaseIDMap     map[string]string `json:"case_id_map"`
 	}
+	// Even the range template only guides import: the absent History belongs
+	// to actual request rendering, not a synthetic import-time Group.
 	h.api("POST", "/api/cases/import", input, 200, &committed)
 	localID := committed.CaseIDMap["row-1"]
-	if committed.NewCount != 1 || committed.ExistingCount != 1 || len(committed.State.Cases) != len(base.Cases)+1 || localID == "" || localID == "row-1" || localID != committed.CaseIDMap["row-2"] {
+	if committed.NewCount != 1 || committed.ExistingCount != 1 || len(committed.State.Cases) != 1 || localID == "" || localID == "row-1" || localID != committed.CaseIDMap["row-2"] {
 		t.Fatalf("commit = %#v", committed)
 	}
 	if decoded, err := hex.DecodeString(localID); err != nil || len(decoded) != 16 {
 		t.Fatalf("local ID is not random opaque ID: %q", localID)
 	}
-	for _, path := range []string{"/api/cases/import/preview", "/api/cases/import"} {
-		h.api("POST", path, input, 409, nil)
-	}
-	input.StateVersion = committed.State.Version
-	input.Format, input.Content = "jsonl", "{\"CurrentText\":\"raw-import-unique\",\"SourceLanguage\":\"en\",\"n\":1.00}\n{\"n\":1.00,\"CurrentText\":\"raw-import-unique\",\"SourceLanguage\":\"en\"}\n"
+	input.StateVersion, input.TemplateID = committed.State.Version, "b"
+	input.Format, input.Content = "jsonl", content+"\n"+content+"\n"
 	h.api("POST", "/api/cases/import", input, 200, &committed)
-	if committed.NewCount != 0 || committed.ExistingCount != 2 || committed.CaseIDMap["row-1"] != localID || len(committed.State.Cases) != len(base.Cases)+1 {
-		t.Fatalf("reimport = %#v", committed)
+	if committed.NewCount != 0 || committed.ExistingCount != 2 || committed.CaseIDMap["row-1"] != localID || len(committed.State.Cases) != 1 || !reflect.DeepEqual(committed.State.Draft, base.Draft) {
+		t.Fatalf("cross-template reimport = %#v", committed)
+	}
+	for _, format := range []string{"json", "jsonl"} {
+		raw := h.api("POST", "/api/cases/export", map[string]any{"state_version": committed.State.Version, "format": format, "case_ids": []string{localID}}, 200, nil)
+		exported, err := parseCasePackage(format, string(raw))
+		if err != nil || len(exported.Cases) != 1 || !reflect.DeepEqual(exported.Cases[0].Variables, wantVariables) {
+			t.Fatalf("%s export changed original input: %#v, %v", format, exported, err)
+		}
+	}
+	input.StateVersion, input.Format, input.Content = committed.State.Version, "json", `[{},{"PriorText":""}]`
+	h.api("POST", "/api/cases/import", input, 200, &committed)
+	if committed.NewCount != 2 || committed.ExistingCount != 0 || committed.CaseIDMap["row-1"] == committed.CaseIDMap["row-2"] {
+		t.Fatalf("missing and explicit empty values collapsed: %#v", committed)
+	}
+}
+
+func TestTemplateVariablesAPIAtomicityVersionAndTemplateValidation(t *testing.T) {
+	h := newHarness(t, nil)
+	s := fixtureState("http://127.0.0.1:1")
+	s.Providers = []Provider{}
+	s.Draft = Draft{}
+	s = h.save(s)
+	base := h.view()
+	input := casePackageImportInput{StateVersion: base.Version, InputFormat: "variables", TemplateID: "t", Format: "json", Content: `{"text":"valid-before-bad"}`}
+	for _, path := range []string{"/api/cases/import/preview", "/api/cases/import"} {
+		for _, tc := range []struct {
+			mode, templateID, format, content string
+			status                            int
+			message                           string
+		}{
+			{"variables", "", "json", "invalid", 400, "template_id is required"},
+			{"variables", "missing", "json", "invalid", 404, "missing"},
+			{"eve-vocat", "t", "json", "invalid", 400, "input_format must be variables or package"},
+			{"unknown", "t", "json", "invalid", 400, "input_format must be variables or package"},
+			{"package", "t", "json", "invalid", 400, "template_id is only supported for variables import"},
+			{"", "t", "json", "invalid", 400, "template_id is only supported for variables import"},
+			{"variables", "t", "yaml", "{}", 400, "format must be json or jsonl"},
+			{"variables", "t", "json", `[{},null]`, 400, "row 2"},
+			{"variables", "t", "jsonl", "{}\n42", 400, "JSONL line 2"},
+			{"variables", "t", "json", `[{},{"TargetLanguageNameMap":{}}]`, 400, "row 2"},
+			{"variables", "t", "jsonl", "{}\n{\"SourceLanguage\":null}", 400, "SourceLanguage must be a string"},
+		} {
+			bad := input
+			bad.InputFormat, bad.TemplateID, bad.Format, bad.Content = tc.mode, tc.templateID, tc.format, tc.content
+			raw := h.api("POST", path, bad, tc.status, nil)
+			if !strings.Contains(string(raw), tc.message) {
+				t.Fatalf("%s validation = %s, want %q", path, raw, tc.message)
+			}
+			bad.StateVersion--
+			h.api("POST", path, bad, 409, nil)
+		}
+		bad := input
+		bad.CollectionIDs = []string{"missing-target"}
+		h.api("POST", path, bad, 400, nil)
+		if got := h.view(); !reflect.DeepEqual(got.State, base.State) {
+			t.Fatalf("failed %s partially committed", path)
+		}
+	}
+	var preview casePackagePreview
+	h.api("POST", "/api/cases/import/preview", input, 200, &preview)
+	// Removing the template after preview must be checked again in the atomic
+	// commit against its current state, not trusted from a preview response.
+	updated := base.State
+	updated.Templates = []Template{}
+	h.api("PUT", "/api/state", updated, 200, &updated)
+	h.api("POST", "/api/cases/import", input, 409, nil)
+	input.StateVersion = updated.Version
+	h.api("POST", "/api/cases/import", input, 404, nil)
+	input.TemplateID = ""
+	h.api("POST", "/api/cases/import/preview", input, 400, nil)
+	if got := h.view(); !reflect.DeepEqual(got.State, updated) {
+		t.Fatal("failed import after template removal changed state")
+	}
+	// A standard backup still imports with no template, Provider or Group.
+	input.InputFormat = "package"
+	p := casePackage{Format: casePackageFormat, Version: 1, Cases: []Case{{ID: "backup", Variables: map[string]any{"text": "backup"}}}, Collections: []Collection{}}
+	input.Content = packageTestContent(t, p, "json")
+	preview = casePackagePreview{}
+	h.api("POST", "/api/cases/import/preview", input, 200, &preview)
+	if preview.TemplateID != "" || preview.InputKeys != nil || preview.DynamicInputs {
+		t.Fatalf("package import acquired template guidance: %#v", preview)
+	}
+	var response struct {
+		State StateView `json:"state"`
+	}
+	h.api("POST", "/api/cases/import", input, 200, &response)
+	if len(response.State.Cases) != len(updated.Cases)+1 || !reflect.DeepEqual(response.State.Draft, updated.Draft) {
+		t.Fatalf("package import without template = %#v", response.State)
+	}
+}
+
+func TestTemplateVariablesAndPackageImportLeaveDraftAndFrozenRunUntouched(t *testing.T) {
+	requests := make(chan string, 8)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		requests <- string(raw)
+		success(w)
+	}))
+	defer provider.Close()
+	h := newHarness(t, nil)
+	s := fixtureState(provider.URL)
+	s.Collections = []Collection{{ID: "selected", Name: "Selected", CaseIDs: []string{"a", "b"}}, {ID: "other", Name: "Other", CaseIDs: []string{"b"}}}
+	s.Draft.CaseIDs, s.Draft.CollectionIDs, s.Draft.ExcludedCaseIDs = []string{"b"}, []string{"selected"}, []string{"b"}
+	s.Draft.Groups = s.Draft.Groups[:1]
+	s.Draft.Groups[0].Runs = 1
+	s.Metrics = []Metric{{ID: "code", Name: "Code", Kind: "code", ReturnType: "boolean", Code: "function evaluate(){return {value:true}}"}}
+	s.Draft.Metrics = []MetricSelection{{MetricID: "code", Target: MetricTarget{Mode: "output"}}}
+	s = h.save(s)
+	base := h.view()
+	selection := Selection{CaseIDs: base.Draft.CaseIDs, CollectionIDs: base.Draft.CollectionIDs, ExcludedCaseIDs: base.Draft.ExcludedCaseIDs}
+	var batch Batch
+	h.api("POST", "/api/runs", RunInput{StateVersion: base.Version, CaseIDs: selection.CaseIDs, CollectionIDs: selection.CollectionIDs, ExcludedCaseIDs: selection.ExcludedCaseIDs, Groups: base.Draft.Groups, Concurrency: 1}, 202, &batch)
+	frozen := h.wait(batch.ID)
+	if len(frozen.Snapshot.CaseIDs) != 1 || frozen.Snapshot.CaseIDs[0] != "a" || len(requests) != 1 {
+		t.Fatalf("unexpected original frozen run: %#v", frozen.Snapshot)
+	}
+	var response struct {
+		State     StateView         `json:"state"`
+		CaseIDMap map[string]string `json:"case_id_map"`
+	}
+	for _, mode := range []string{"variables", "package"} {
+		input := casePackageImportInput{StateVersion: s.Version, InputFormat: mode, Format: "json", CollectionIDs: []string{"other"}}
+		if mode == "variables" {
+			input.TemplateID, input.Content = "t", `{"text":"variables-only","large":9007199254740993}`
+		} else {
+			input.Content = packageTestContent(t, casePackage{Format: casePackageFormat, Version: 1, Cases: []Case{{ID: "file", Variables: map[string]any{"text": "package-only"}}}, Collections: []Collection{}}, "json")
+		}
+		h.api("POST", "/api/cases/import", input, 200, &response)
+		s = response.State.State
+		resolved, err := resolveSelection(s, selection)
+		if err != nil || !reflect.DeepEqual(resolved, []string{"a"}) || !reflect.DeepEqual(s.Draft, base.Draft) {
+			t.Fatalf("%s import changed Draft or unselected collection scope: %#v, %v", mode, s.Draft, err)
+		}
+	}
+	input := casePackageImportInput{StateVersion: s.Version, InputFormat: "variables", TemplateID: "t", Format: "json", Content: `{"text":"new-selected-member"}`, CollectionIDs: []string{"selected"}}
+	h.api("POST", "/api/cases/import", input, 200, &response)
+	selectedID := response.CaseIDMap["row-1"]
+	resolved, err := resolveSelection(response.State.State, selection)
+	if err != nil || !reflect.DeepEqual(resolved, []string{"a", selectedID}) || !reflect.DeepEqual(response.State.Draft, base.Draft) {
+		t.Fatalf("selected collection append did not preserve Draft IDs: %#v, %v", response.State.Draft, err)
+	}
+	for _, path := range []string{"/api/runs/" + batch.ID, "/api/runs/" + batch.ID + "/export"} {
+		var current Detail
+		h.api("GET", path, nil, 200, &current)
+		if !reflect.DeepEqual(current.Snapshot, frozen.Snapshot) || !reflect.DeepEqual(current.Results, frozen.Results) {
+			t.Fatal("import changed an already frozen run")
+		}
+	}
+	if len(requests) != 1 {
+		t.Fatal("import issued a model request")
 	}
 }

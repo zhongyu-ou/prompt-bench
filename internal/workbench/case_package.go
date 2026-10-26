@@ -24,15 +24,17 @@ type casePackageImportInput struct {
 	StateVersion  int64    `json:"state_version"`
 	Format        string   `json:"format"`
 	InputFormat   string   `json:"input_format,omitempty"`
+	TemplateID    string   `json:"template_id,omitempty"`
 	Content       string   `json:"content"`
 	CollectionIDs []string `json:"collection_ids,omitempty"`
 }
 
 type casePackagePreviewCase struct {
-	FileID    string         `json:"file_id"`
-	Status    string         `json:"status"`
-	LocalID   string         `json:"local_id,omitempty"`
-	Variables map[string]any `json:"variables"`
+	FileID        string         `json:"file_id"`
+	Status        string         `json:"status"`
+	LocalID       string         `json:"local_id,omitempty"`
+	Variables     map[string]any `json:"variables"`
+	VariablesJSON string         `json:"variables_json"`
 }
 
 type casePackagePreview struct {
@@ -42,6 +44,9 @@ type casePackagePreview struct {
 	Cases           []casePackagePreviewCase `json:"cases"`
 	CollectionCount int                      `json:"collection_count"`
 	Warnings        []string                 `json:"warnings"`
+	TemplateID      string                   `json:"template_id,omitempty"`
+	InputKeys       []string                 `json:"input_keys,omitempty"`
+	DynamicInputs   bool                     `json:"dynamic_inputs,omitempty"`
 }
 
 type casePackageImportPlan struct {
@@ -171,27 +176,16 @@ func parseCaseImport(inputFormat, format, content string) (casePackage, error) {
 		return parseCasePackage(format, content)
 	}
 	p := casePackage{Format: casePackageFormat, Version: 1, Cases: []Case{}, Collections: []Collection{}}
-	if inputFormat != "eve-vocat" {
-		return p, errors.New("input_format must be eve-vocat or package")
+	if inputFormat != "variables" {
+		return p, errors.New("input_format must be variables or package")
 	}
 	appendRow := func(raw []byte, location string) error {
 		var variables map[string]any
 		if err := packageJSON(raw, &variables); err != nil || variables == nil {
 			return fmt.Errorf("%s must be a JSON object of variables", location)
 		}
-		if _, found := variables["TargetLanguageNameMap"]; found {
-			return fmt.Errorf("%s: TargetLanguageNameMap is execution-owned; remove it and configure group language_routes instead", location)
-		}
-		for _, key := range []string{"CurrentText", "SourceLanguage"} {
-			value, ok := variables[key].(string)
-			if !ok || strings.TrimSpace(value) == "" {
-				return fmt.Errorf("%s: %s is required and must be a nonempty string", location, key)
-			}
-		}
-		for _, key := range []string{"PriorText", "ReplacementMap"} {
-			if _, found := variables[key]; !found {
-				variables[key] = ""
-			}
+		if err := validateVariables(variables); err != nil {
+			return fmt.Errorf("%s: %w", location, err)
 		}
 		p.Cases = append(p.Cases, Case{ID: fmt.Sprintf("row-%d", len(p.Cases)+1), Variables: variables})
 		return nil
@@ -202,7 +196,7 @@ func parseCaseImport(inputFormat, format, content string) (casePackage, error) {
 		if len(data) > 0 && data[0] == '[' {
 			var rows []json.RawMessage
 			if err := packageJSON(data, &rows); err != nil {
-				return p, fmt.Errorf("invalid eve-vocat JSON array: %w", err)
+				return p, fmt.Errorf("invalid variables JSON array: %w", err)
 			}
 			for i, row := range rows {
 				if err := appendRow(row, fmt.Sprintf("row %d", i+1)); err != nil {
@@ -225,12 +219,38 @@ func parseCaseImport(inputFormat, format, content string) (casePackage, error) {
 		return p, errors.New("format must be json or jsonl")
 	}
 	if len(p.Cases) == 0 {
-		return p, errors.New("eve-vocat input must contain at least one variables object")
+		return p, errors.New("variables input must contain at least one variables object")
 	}
 	if err := validateCasePackage(p); err != nil {
 		return p, err
 	}
 	return p, nil
+}
+
+func importTemplateInputs(st State, in casePackageImportInput) (TemplateInputs, error) {
+	switch in.InputFormat {
+	case "", "package":
+		if in.TemplateID != "" {
+			return TemplateInputs{}, errors.New("template_id is only supported for variables import")
+		}
+		return TemplateInputs{}, nil
+	case "variables":
+		if in.TemplateID == "" {
+			return TemplateInputs{}, errors.New("template_id is required for variables import")
+		}
+		for _, t := range st.Templates {
+			if t.ID == in.TemplateID {
+				inputs, err := templateInputs(t)
+				if err != nil {
+					return TemplateInputs{}, fmt.Errorf("template %q (%s): %w", t.Name, t.ID, err)
+				}
+				return inputs, nil
+			}
+		}
+		return TemplateInputs{}, fmt.Errorf("template %q: %w", in.TemplateID, errNotFound)
+	default:
+		return TemplateInputs{}, errors.New("input_format must be variables or package")
+	}
 }
 
 func parseCasePackage(format, content string) (casePackage, error) {
@@ -410,7 +430,7 @@ func planCasePackageImport(st State, p casePackage, targetIDs []string) (casePac
 			return plan, err
 		}
 		localID, found := byInput[fingerprint]
-		row := casePackagePreviewCase{FileID: c.ID, Variables: c.Variables, Status: "existing"}
+		row := casePackagePreviewCase{FileID: c.ID, Variables: c.Variables, VariablesJSON: fingerprint, Status: "existing"}
 		if found {
 			plan.Preview.ExistingCount++
 			if existingIDs[localID] {
@@ -607,6 +627,11 @@ func (a *API) packageAPI(w http.ResponseWriter, r *http.Request) bool {
 				fail(w, http.StatusConflict, errStale)
 				return true
 			}
+			inputs, err := importTemplateInputs(st, in)
+			if err != nil {
+				fail(w, statusFor(err), err)
+				return true
+			}
 			p, err := parseCaseImport(in.InputFormat, in.Format, in.Content)
 			if err != nil {
 				fail(w, http.StatusBadRequest, err)
@@ -617,11 +642,19 @@ func (a *API) packageAPI(w http.ResponseWriter, r *http.Request) bool {
 				fail(w, http.StatusBadRequest, err)
 				return true
 			}
+			if in.InputFormat == "variables" {
+				plan.Preview.TemplateID = in.TemplateID
+				plan.Preview.InputKeys = inputs.Keys
+				plan.Preview.DynamicInputs = inputs.Dynamic
+			}
 			sendJSON(w, http.StatusOK, plan.Preview)
 			return true
 		}
 		var plan casePackageImportPlan
 		st, err := a.store.mutateState(in.StateVersion, func(st *State) error {
+			if _, err := importTemplateInputs(*st, in); err != nil {
+				return err
+			}
 			p, err := parseCaseImport(in.InputFormat, in.Format, in.Content)
 			if err != nil {
 				return err

@@ -3,6 +3,7 @@ import { App } from './state.js';
 import { statusTag } from './feedback.js';
 import { snapshotHtml } from './snapshot.js';
 import { renderResultBrowser } from './output.js';
+import { hasKnownActiveBatch } from './run-plan.js';
 
 function renderHistoryList() {
   const list = $('history-run-list');
@@ -63,7 +64,7 @@ function renderHistoryDetail(detail) {
         </div>
         <div class="detail-actions">
           <button type="button" class="btn tiny" data-run-export="${esc(b.id)}">导出 JSON</button>
-          <button type="button" class="btn tiny" data-run-replay="${esc(b.id)}">按冻结快照复跑</button>
+          <button type="button" class="btn tiny" data-run-replay="${esc(b.id)}" ${hasKnownActiveBatch() || App.loading ? 'disabled' : ''}>按冻结快照仅重新生成</button>
           <button type="button" class="btn tiny" data-run-output="${esc(b.id)}">在输出面板查看</button>
           <button type="button" class="btn tiny" data-run-refresh="${esc(b.id)}">刷新</button>
         </div>
@@ -78,6 +79,7 @@ function renderHistoryDetail(detail) {
         <div class="stat"><div class="k">在途</div><div class="v">${esc(String(b.in_flight ?? 0))}</div></div>
         <div class="stat"><div class="k">并发</div><div class="v">${esc(String(b.concurrency ?? '—'))}</div></div>
       </div>
+      ${b.evaluation_execution_id ? `<p>关联评估 #${esc(b.evaluation_execution_id)}（状态独立于生成）；在输出面板选择评估版本查看。</p>` : ''}
       <section class="detail-section">
         <h3>冻结快照</h3>
         ${snapshotHtml(detail.snapshot)}

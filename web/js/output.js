@@ -8,8 +8,9 @@ import { evaluationBadge, evaluationStatusTag, formatValue, metricMap, metricTyp
 import { summarizeEvaluations } from './evaluation-summary.js';
 import { openMetricEditorById } from './metrics.js';
 import { metricTargetLabel } from './model.js';
+import { getOutputDetail, renderEvaluationControls } from './evaluations.js';
 
-const previewTabs = [['output', '输出'], ['request', '请求'], ['response', '响应'], ['details', '详情'], ['eval', '评估']];
+const previewTabs = [['output', '输出'], ['eval', '评估'], ['request', '请求'], ['response', '响应'], ['details', '详情']];
 const previewHtml = new WeakMap();
 const rowHtml = new WeakMap();
 const browserDetail = new WeakMap();
@@ -66,6 +67,10 @@ function syncMetricFilterOptions(detail) {
     App.outputMetricFilters.clear();
     App.outputMetricFilterRunId = runId;
   }
+  if (detail?.evaluationLoading) {
+    host.hidden = true;
+    return;
+  }
   const metrics = [...metricMap(detail).values()].map((entry) => entry.metric)
     .filter((metric) => metric.return_type === 'boolean' || metric.return_type === 'classification');
   const fields = metrics.map((metric) => {
@@ -92,10 +97,11 @@ function syncMetricFilterOptions(detail) {
   });
 }
 
-function matchesOutputFilters(result, includeGenerationStatus = true) {
+function matchesOutputFilters(result, includeGenerationStatus = true, includeMetricFilters = true) {
   if (App.outputFilter.group && result.group_id !== App.outputFilter.group) return false;
   if (App.outputFilter.case && result.case_id !== App.outputFilter.case) return false;
   if (includeGenerationStatus && App.outputFilter.status && result.status !== App.outputFilter.status) return false;
+  if (!includeMetricFilters) return true;
   for (const [id, value] of App.outputMetricFilters) {
     const outcome = (result.evaluations || []).find((item) => item.metric_id === id);
     if (outcome?.status !== 'completed' || outcome.value !== value) return false;
@@ -104,7 +110,11 @@ function matchesOutputFilters(result, includeGenerationStatus = true) {
 }
 
 function renderOutput() {
-  const detail = App.currentDetail;
+  renderEvaluationControls();
+  const detail = getOutputDetail();
+  const hasEvaluations = !!App.evaluationSelectedId || !!detail?.snapshot?.metrics?.length;
+  $('out-tab-summary').hidden = !hasEvaluations;
+  if (!hasEvaluations && App.outputTab === 'summary') { setOutputTab('results'); return; }
   const batch = detail?.batch || null;
   const currentBatchId = batch?.id || null;
   const sameRun = currentBatchId !== null && App.outputRenderRunId === currentBatchId;
@@ -177,14 +187,21 @@ function renderOutput() {
     : '该批次没有结果记录。';
 
   syncFilterOptions(detail);
-  const filtered = results.filter((result) => matchesOutputFilters(result, App.outputTab !== 'summary'));
+  const filtered = results.filter((result) => matchesOutputFilters(result, App.outputTab !== 'summary', !detail.evaluationLoading));
   const paging = App.outputPaging;
-  const signature = JSON.stringify([batch.id, App.outputFilter.group, App.outputFilter.case, App.outputFilter.status, [...App.outputMetricFilters]]);
-  if (paging.signature !== signature) {
+  const version = JSON.stringify([App.evaluationSelectedId, $('evaluation-round').value || '1']);
+  const versionChanged = sameRun && paging.version !== version;
+  paging.version = version;
+  const evaluationLoaded = paging.evaluationLoading && !detail.evaluationLoading;
+  paging.evaluationLoading = !!detail.evaluationLoading;
+  const signature = JSON.stringify([batch.id, version, App.outputFilter.group, App.outputFilter.case, App.outputFilter.status, [...App.outputMetricFilters]]);
+  if (paging.signature !== signature || evaluationLoaded) {
     paging.signature = signature;
-    paging.page = 1;
+    const preserveSelection = versionChanged || evaluationLoaded;
+    const selectedIndex = preserveSelection ? filtered.findIndex((result) => result.id === list.dataset.selected) : -1;
+    paging.page = selectedIndex >= 0 ? Math.floor(selectedIndex / paging.pageSize) + 1 : 1;
     App.outputScrollTop = 0;
-    list.dataset.selected = '';
+    if (!preserveSelection) list.dataset.selected = '';
   }
   const pages = Math.max(1, Math.ceil(filtered.length / paging.pageSize));
   paging.page = Math.min(Math.max(1, paging.page), pages);
@@ -198,9 +215,9 @@ function renderOutput() {
   $('output-page-size').value = paging.pageSize;
   $('output-page-prev').disabled = paging.page <= 1;
   $('output-page-next').disabled = paging.page >= pages;
-  renderResultBrowser(list, pageResults, results.length ? '没有匹配当前筛选条件的结果。' : '等待结果…');
+  renderResultBrowser(list, pageResults, results.length ? '没有匹配当前筛选条件的结果。' : '等待结果…', detail);
   list.querySelector('.result-rows').scrollTop = App.outputScrollTop;
-  renderOutputSummary();
+  renderOutputSummary(detail);
   renderOutputSnapshot();
 }
 
@@ -229,7 +246,7 @@ function resultRowHtml(r, selected, entries) {
         <td class="case" title="${esc(`${r.case_name || ''} ${r.case_id || ''}`)}">${esc(r.case_name || r.case_id || '—')}</td>
         <td class="group" title="${esc(r.group_name || r.group_id || '')}">${esc(r.group_name || r.group_id || '—')}</td>
         <td>${statusTag(r.status, ATTEMPT_STATUS)}</td>
-        ${entries.length ? `<td class="eval-indicator">${evaluationBadge(r)}</td>` : ''}
+        ${entries.length ? `<td class="eval-indicator">${evaluationBadge(r) || '<span class="muted">未评估</span>'}</td>` : ''}
         <td class="dur">${esc(fmtDuration(r.duration_ms))}</td>
         ${entries.map((entry) => `<td class="metric-cell">${metricCellHtml(r, entry)}</td>`).join('')}
         <td class="snippet${r.status === 'failed' ? ' output-error' : ''}" title="${esc(snippetSource)}">${esc(snippet)}</td>
@@ -281,7 +298,7 @@ async function copyResultPreview(text) {
 function evaluationPreviewHtml(result, detail) {
   const outcomes = Array.isArray(result.evaluations) ? result.evaluations : [];
   if (!outcomes.length) {
-    return '<div class="empty-state">该结果没有评估记录。若批次未选择指标，只保留生成输出。</div>';
+    return `<div class="empty-state">${detail?.evaluationLoading ? '正在载入所选评估版本…' : '所选评估版本中，该结果没有评估记录。'}</div>`;
   }
   const entries = metricMap(detail);
   return outcomes.map((outcome) => {
@@ -295,7 +312,8 @@ function evaluationPreviewHtml(result, detail) {
       </div>
       <div class="eval-target"><span>评估对象</span><span class="mono">${esc(metricTargetLabel(target))}</span></div>
       ${outcomeHtml(outcome, metric, { includeRaw: true })}
-      ${metric ? `<button type="button" class="link-btn eval-config-link" data-eval-config="${esc(metric.id)}">指标配置与调用详情</button>` : '<span class="muted small">指标配置已不存在，仅保留历史判断。</span>'}
+      ${entry ? `<details class="eval-raw"><summary>冻结指标与调用配置</summary><pre>${esc(pretty(entry))}</pre></details>` : ''}
+      ${metric ? `<button type="button" class="link-btn eval-config-link" data-eval-config="${esc(metric.id)}">编辑当前指标配置</button>` : '<span class="muted small">指标配置已不存在，仅保留历史判断。</span>'}
     </section>`;
   }).join('');
 }
@@ -365,12 +383,14 @@ function renderResultBrowser(el, results, emptyText = '没有结果记录。', d
   rows.scrollLeft = scrollLeft;
   const preview = el.querySelector('.result-preview');
   preview.hidden = !selected;
-  const tab = el.dataset.activePreviewTab || 'output';
+  const hasEvaluations = !!selected?.evaluations?.length || !!ctxDetail?.snapshot?.metrics?.length || (el.id === 'result-list' && !!App.evaluationSelectedId);
+  const tab = el.dataset.activePreviewTab === 'eval' && !hasEvaluations ? 'output' : el.dataset.activePreviewTab || 'output';
   const copyButton = el.querySelector('[data-preview-copy]');
   copyButton.hidden = tab === 'details' || tab === 'eval';
   const copyText = selected ? resultPreviewText(selected, tab) : '';
   copyButton.disabled = !copyText;
   el.querySelectorAll('[data-preview-tab]').forEach((button) => {
+    button.hidden = button.dataset.previewTab === 'eval' && !hasEvaluations;
     const active = button.dataset.previewTab === tab;
     button.setAttribute('aria-selected', String(active));
     button.tabIndex = active ? 0 : -1;
@@ -420,7 +440,7 @@ function renderResultBrowser(el, results, emptyText = '没有结果记录。', d
     const button = event.target.closest('[data-preview-tab]');
     if (button && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();
-      const buttons = [...el.querySelectorAll('[data-preview-tab]')];
+      const buttons = [...el.querySelectorAll('[data-preview-tab]')].filter((button) => !button.hidden);
       const index = buttons.indexOf(button);
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
         : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
@@ -434,11 +454,10 @@ function renderResultBrowser(el, results, emptyText = '没有结果记录。', d
   };
 }
 
-function renderOutputSummary() {
+function renderOutputSummary(detail = getOutputDetail()) {
   const host = $('output-summary');
   const empty = $('output-summary-empty');
   if (!host || !empty) return;
-  const detail = App.currentDetail;
   const results = Array.isArray(detail?.results) ? detail.results : [];
   const frozenMetrics = Array.isArray(detail?.snapshot?.metrics) ? detail.snapshot.metrics : [];
   const filteredResults = results.filter((result) => matchesOutputFilters(result, false));
@@ -446,13 +465,7 @@ function renderOutputSummary() {
   if (!frozenMetrics.length || !filteredResults.length || !hasEvaluations) {
     host.innerHTML = '';
     empty.hidden = false;
-    empty.textContent = !detail?.batch
-      ? '选择指标并运行后可在这里查看评估汇总。'
-      : !frozenMetrics.length
-        ? '该批次没有选择评估指标。历史批次不会重新评估。'
-        : !filteredResults.length
-          ? '没有匹配当前筛选条件的结果。'
-          : '所选结果没有评估记录。';
+    empty.textContent = detail?.evaluationLoading ? '正在载入所选评估版本…' : '所选结果没有评估记录。';
     return;
   }
   empty.hidden = true;
@@ -485,7 +498,7 @@ function renderOutputSummary() {
     return `<div class="summary-group-line"><strong>${esc(summaryGroupName(detail, id))}</strong><span>${esc(bits.join(' · '))}</span>${errors ? `<span class="summary-group-error">错误 ${errors}</span>` : ''}</div>`;
   }).join('');
   host.innerHTML = `<div class="summary-wrap">
-    <div class="summary-head"><h3>指标汇总</h3><span class="muted small">按当前筛选条件统计；仅完成的判断计入有效分母。</span></div>
+    <div class="summary-head"><h3>评估汇总</h3><span class="muted small">按当前筛选条件统计；仅完成的判断计入有效分母。</span></div>
     <div class="table-wrap summary-table-wrap">
       <table class="data-table summary-table">
         <thead><tr><th scope="col">指标</th><th scope="col">有效</th><th scope="col">错误</th><th scope="col">结果</th></tr></thead>

@@ -1,10 +1,11 @@
 import { $, clone, esc, uniqueId } from './utils.js';
-import { activeCase, activeGroup, activeMessage, activeTemplate, ensureSelections, groupById, markEdit, templateById } from './model.js';
+import { activeGroup, activeMessage, activeTemplate, ensureSelections, groupById, markEdit, templateById } from './model.js';
 import { toast } from './feedback.js';
 import { App } from './state.js';
 import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
+import { renderTemplatePreview } from './template-preview.js';
 
 let renamingTemplateId = null;
 function renderTemplateMismatch() {
@@ -39,7 +40,6 @@ function focusBoundTemplate() {
   App.activeMessageIndex = 0;
   renderTemplateOptions();
   renderTemplateEditor();
-  renderInsertVarList();
   toast(`已切到配置「${g.name || g.id}」绑定的模板`, 'ok', 2000);
 }
 
@@ -79,13 +79,12 @@ function renderTemplateEditor() {
     role.disabled = true;
     $('add-message-btn').disabled = true;
     $('del-message-btn').disabled = true;
-    $('insert-var-menu').hidden = true;
     updateLineInfo(ta, $('message-lineinfo'));
     renderTemplateMismatch();
+    renderTemplatePreview();
     return;
   }
 
-  $('insert-var-menu').hidden = false;
   $('add-message-btn').disabled = false;
   if (!tpl.messages.length) {
     tabs.innerHTML = '<span class="message-tabs-empty">该模板没有消息。点击“＋ 消息”添加。</span>';
@@ -112,44 +111,9 @@ function renderTemplateEditor() {
   }
   updateLineInfo(ta, $('message-lineinfo'));
   renderTemplateMismatch();
+  renderTemplatePreview();
 }
 
-
-function renderInsertVarList() {
-  const list = $('insert-var-list');
-  if (!list) return;
-  const c = activeCase();
-  if (!c) {
-    list.innerHTML = '<div class="menu-empty">尚未选择 case</div>';
-    return;
-  }
-  const keys = Object.keys(c.variables || {}).filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)).sort();
-  if (!keys.length) {
-    list.innerHTML = '<div class="menu-empty">当前 case 没有可用变量，请在 Case 库中添加。</div>';
-    return;
-  }
-  list.innerHTML = keys.map((k) => `<button type="button" data-var-insert="${esc(k)}">{{ .${esc(k)} }}</button>`).join('');
-}
-
-function insertVariableToken(key) {
-  const tpl = activeTemplate();
-  const msg = activeMessage();
-  const ta = $('message-content');
-  if (!tpl || !msg || !ta) return;
-  const token = `{{ .${key} }}`;
-  const start = ta.selectionStart ?? ta.value.length;
-  const end = ta.selectionEnd ?? start;
-  const next = ta.value.slice(0, start) + token + ta.value.slice(end);
-  if (next === msg.content) return;
-  msg.content = next;
-  markEdit();
-  ta.value = next;
-  const pos = start + token.length;
-  ta.focus();
-  ta.setSelectionRange(pos, pos);
-  updateLineInfo(ta, $('message-lineinfo'));
-  refreshRunPlan();
-}
 
 function handleMessageInput() {
   const msg = activeMessage();
@@ -158,6 +122,7 @@ function handleMessageInput() {
   msg.content = ta.value;
   updateLineInfo(ta, $('message-lineinfo'));
   refreshRunPlan();
+  renderTemplatePreview();
 }
 
 function updateLineInfo(textarea, label) {
@@ -318,15 +283,6 @@ export function bindTemplateEvents() {
   $('add-message-btn').addEventListener('click', addMessage);
   $('del-message-btn').addEventListener('click', deleteMessage);
 
-  $('insert-var-menu').addEventListener('toggle', () => {
-    if ($('insert-var-menu').open) renderInsertVarList();
-  });
-  $('insert-var-list').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-var-insert]');
-    if (!btn) return;
-    insertVariableToken(btn.dataset.varInsert);
-    $('insert-var-menu').open = false;
-  });
   $('template-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const name = $('template-new-name').value.trim();

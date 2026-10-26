@@ -57,7 +57,6 @@
 .metric-issue.error { background: var(--err-soft); color: var(--err); }
 .metric-issue.warn { background: var(--warn-soft); color: var(--warn); }
 .metric-issue .link-btn { font-size: 10.5px; padding: 0 1px; }
-.metric-budget { color: var(--muted); font-size: 10.5px; line-height: 1.5; }
 .metric-pick-empty { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 11px; }
 
 /* ---------- Metrics page ---------- */
@@ -241,3 +240,4 @@
   .metric-target-row { padding-left: 0; }
   .metric-pick-list { max-height: 320px; }
 }
+

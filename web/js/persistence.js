@@ -102,7 +102,6 @@ async function saveState({ silent = false } = {}) {
     }
     hideBanner();
     clearEditorRenderError();
-    renderCredentialState();
     if (!silent) {
       toast(submittedMutations.size
         ? '更改与手动凭据已保存。'
@@ -124,6 +123,7 @@ async function saveState({ silent = false } = {}) {
     return false;
   } finally {
     App.saving = false;
+    renderCredentialState();
     updateDirtyUI();
     refreshRunPlan();
   }

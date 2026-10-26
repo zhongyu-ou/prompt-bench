@@ -32,6 +32,20 @@ func selectedRun(s State, c int) RunInput {
 func generatedJSON(w http.ResponseWriter, output string) {
 	json.NewEncoder(w).Encode(map[string]any{"model": "generation-fixture", "choices": []any{map[string]any{"message": map[string]string{"content": output}}}})
 }
+func (h *harness) waitEvaluation(id string) EvaluationDetail {
+	h.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		var d EvaluationDetail
+		h.api("GET", "/api/evaluations/"+id, nil, 200, &d)
+		if d.Evaluation.FinishedAt != "" {
+			return d
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	h.t.Fatal("evaluation did not finish")
+	return EvaluationDetail{}
+}
 func TestEvaluationSnapshotPartialFailureReplayAndSecrets(t *testing.T) {
 	var generation, decision atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,48 +64,40 @@ func TestEvaluationSnapshotPartialFailureReplayAndSecrets(t *testing.T) {
 	var b Batch
 	h.api("POST", "/api/runs", selectedRun(s, 2), 202, &b)
 	d := h.wait(b.ID)
-	if d.Batch.Completed != 1 || d.Batch.Failed != 0 || d.Batch.Status != "completed_with_errors" || d.Batch.Evaluation.Completed != 1 || d.Batch.Evaluation.Error != 1 || d.Batch.MaxModelCalls != 1 {
-		t.Fatalf("independent progress: %+v", d.Batch)
+	evaluation := h.waitEvaluation(b.EvaluationExecutionID)
+	if d.Batch.Status != "completed" || d.Batch.Completed != 1 || len(d.Results[0].Evaluations) != 0 || evaluation.Evaluation.Status != "completed_with_errors" || evaluation.Evaluation.Completed != 1 || evaluation.Evaluation.Failed != 1 {
+		t.Fatalf("separate lifecycle: %+v %+v", d.Batch, evaluation)
 	}
-	if threshold := d.Snapshot.Metrics[1].Metric.Threshold; threshold == nil || *threshold != 0.5 {
+	if threshold := evaluation.Snapshot.Metrics[1].Metric.Threshold; threshold == nil || *threshold != 0.5 {
 		t.Fatal("effective default threshold was not frozen")
 	}
-	r := d.Results[0]
-	if r.Status != "completed" || r.Evaluations[0].Status != "completed" || r.Evaluations[0].Value != false || r.Evaluations[1].Status != "error" || !strings.Contains(r.Evaluations[1].RawResponse, "[REDACTED]") {
-		t.Fatalf("outcomes: %+v", r)
+	if evaluation.Outcomes[0].Outcome.Value != false || !strings.Contains(evaluation.Outcomes[1].Outcome.RawResponse, "[REDACTED]") {
+		t.Fatal(evaluation.Outcomes)
 	}
-	if len(d.EvaluationSummary) != 4 || d.EvaluationSummary[0].Valid != 1 || d.EvaluationSummary[0].FalseCount != 1 || d.EvaluationSummary[2].Error != 1 {
-		t.Fatalf("summary: %+v", d.EvaluationSummary)
-	}
-	export := h.api("GET", "/api/runs/"+b.ID+"/export", nil, 200, nil)
+	export := h.api("GET", "/api/evaluations/"+evaluation.Evaluation.ID+"/export", nil, 200, nil)
 	if bytes.Contains(export, []byte("synthetic-secret")) {
 		t.Fatal("secret in export")
 	}
 	s.Metrics[0].Code = `function evaluate(){return {value:true}}`
 	s.Draft.Metrics = nil
 	s = h.save(s)
-	var replay Batch
-	h.api("POST", "/api/runs/"+b.ID+"/replay", map[string]any{}, 202, &replay)
-	again := h.wait(replay.ID)
-	if !reflect.DeepEqual(d.Snapshot, again.Snapshot) || again.Results[0].Evaluations[0].Value != false || generation.Load() != 2 || decision.Load() != 2 {
-		t.Fatal("frozen replay changed or retried")
+	var replay Evaluation
+	h.api("POST", "/api/evaluations/"+evaluation.Evaluation.ID+"/replay", map[string]any{}, 202, &replay)
+	again := h.waitEvaluation(replay.ID)
+	if !reflect.DeepEqual(evaluation.Snapshot, again.Snapshot) || again.Outcomes[0].Outcome.Value != false || generation.Load() != 1 || decision.Load() != 2 {
+		t.Fatal("frozen evaluation replay changed or regenerated")
 	}
-	s.Metrics = []Metric{}
-	s.Providers = []Provider{}
-	s.Templates = []Template{}
-	s.Draft.Metrics = []MetricSelection{}
-	s.Draft.Groups = []Group{}
-	h.save(s)
-	h.api("POST", "/api/runs/"+b.ID+"/replay", map[string]any{}, 202, &replay)
-	deletedSourcesReplay := h.wait(replay.ID)
-	if !reflect.DeepEqual(d.Snapshot, deletedSourcesReplay.Snapshot) || deletedSourcesReplay.Results[0].Evaluations[0].Value != false || decision.Load() != 3 {
-		t.Fatal("source deletion broke frozen metric/provider replay")
+	// Generation replay never repeats legacy metrics or a launch shortcut.
+	var replayBatch Batch
+	h.api("POST", "/api/runs/"+b.ID+"/replay", map[string]any{}, 202, &replayBatch)
+	h.wait(replayBatch.ID)
+	if generation.Load() != 2 || decision.Load() != 2 || replayBatch.EvaluationExecutionID != "" {
+		t.Fatal("generation replay dispatched evaluation")
 	}
-	// State mutation never rewrites the old immutable snapshot or results.
 	var original Detail
 	h.api("GET", "/api/runs/"+b.ID, nil, 200, &original)
 	if !reflect.DeepEqual(d, original) {
-		t.Fatal("history changed after configuration edit/replay")
+		t.Fatal("generation history changed")
 	}
 }
 func TestEvaluationPreflightAndProviderCapability(t *testing.T) {
@@ -100,10 +106,13 @@ func TestEvaluationPreflightAndProviderCapability(t *testing.T) {
 	defer p.Close()
 	h := newHarness(t, nil)
 	s := h.save(metricFixture(p.URL))
-	h.api("POST", "/api/runs", selectedRun(s, 1), 400, nil)
-	if calls.Load() != 0 {
-		t.Fatal("generation before decision credential preflight")
+	var b Batch
+	h.api("POST", "/api/runs", runInput(s, 1), 202, &b)
+	h.wait(b.ID)
+	if calls.Load() != 1 {
+		t.Fatal("generation-only did not run independently")
 	}
+	h.api("POST", "/api/evaluations", EvaluationInput{StateVersion: s.Version, GenerationRunID: b.ID, EvaluationConfig: EvaluationConfig{Metrics: s.Draft.Metrics, Concurrency: 1}}, 400, nil)
 	bad := s
 	bad.Draft.Groups = append([]Group{}, s.Draft.Groups...)
 	bad.Draft.Groups[0].ProviderID = "jev"
@@ -199,21 +208,25 @@ func TestEvaluationStopDuringInflightMetric(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("metric did not dispatch")
 	}
-	var active Detail
-	h.api("GET", "/api/runs/"+b.ID, nil, 200, &active)
-	if active.Batch.Completed != 1 || active.Batch.Status != "running" || active.Batch.Evaluation.Running != 1 {
-		t.Fatal(active.Batch)
+	d := h.wait(b.ID)
+	if d.Batch.Status != "completed" || d.Batch.Completed != 3 {
+		t.Fatal(d.Batch)
 	}
-	var stop Batch
-	h.api("POST", "/api/runs/"+b.ID+"/stop", map[string]any{}, 200, &stop)
+	var active EvaluationDetail
+	h.api("GET", "/api/evaluations/"+b.EvaluationExecutionID, nil, 200, &active)
+	if active.Evaluation.Status != "running" || active.Evaluation.InFlight != 1 {
+		t.Fatal(active.Evaluation)
+	}
+	var stop Evaluation
+	h.api("POST", "/api/evaluations/"+b.EvaluationExecutionID+"/stop", map[string]any{}, 200, &stop)
 	if stop.Status != "stopping" {
 		t.Fatal(stop)
 	}
-	h.api("POST", "/api/runs", selectedRun(s, 1), 409, nil)
+	h.api("POST", "/api/runs", runInput(s, 1), 409, nil)
 	close(release)
-	d := h.wait(b.ID)
-	if d.Batch.Status != "stopped" || d.Batch.Completed != 1 || d.Batch.Cancelled != 2 || d.Batch.Evaluation.Completed != 2 || d.Batch.Evaluation.Cancelled != 7 || generations.Load() != 1 || decisions.Load() != 1 {
-		t.Fatalf("stop counts %+v gen%d decision%d", d.Batch, generations.Load(), decisions.Load())
+	evaluation := h.waitEvaluation(b.EvaluationExecutionID)
+	if evaluation.Evaluation.Status != "stopped" || evaluation.Evaluation.Completed != 2 || evaluation.Evaluation.Cancelled != 7 || generations.Load() != 3 || decisions.Load() != 1 {
+		t.Fatalf("stop counts %+v gen%d decision%d", evaluation.Evaluation, generations.Load(), decisions.Load())
 	}
 }
 func TestEvaluationGenerationFailureAndMissingTarget(t *testing.T) {
@@ -239,14 +252,16 @@ func TestEvaluationGenerationFailureAndMissingTarget(t *testing.T) {
 	var b Batch
 	h.api("POST", "/api/runs", selectedRun(s, 2), 202, &b)
 	d := h.wait(b.ID)
-	if d.Batch.Failed != 1 || d.Batch.Evaluation.Skipped != 2 || d.Batch.Evaluation.Error != 0 || decisions.Load() != 0 {
-		t.Fatalf("failed generation must skip metrics: %+v", d)
+	evaluation := h.waitEvaluation(b.EvaluationExecutionID)
+	if d.Batch.Failed != 1 || evaluation.Evaluation.Status != "failed" || evaluation.Evaluation.Error == "" || decisions.Load() != 0 {
+		t.Fatalf("empty output execution must terminate: %+v", evaluation)
 	}
 	fail.Store(false)
 	h.api("POST", "/api/runs", selectedRun(s, 2), 202, &b)
 	d = h.wait(b.ID)
-	if d.Batch.Completed != 1 || d.Batch.Evaluation.Error != 2 || d.Batch.Evaluation.Completed != 0 || decisions.Load() != 0 {
-		t.Fatalf("missing field must not fall back or call model: %+v", d)
+	evaluation = h.waitEvaluation(b.EvaluationExecutionID)
+	if d.Batch.Completed != 1 || evaluation.Evaluation.Failed != 2 || evaluation.Evaluation.Completed != 0 || decisions.Load() != 0 {
+		t.Fatalf("missing field must not fall back or call model: %+v", evaluation)
 	}
 }
 func TestEvaluationRecoveryPreservesGenerationAndPriorHistory(t *testing.T) {
@@ -308,9 +323,10 @@ func TestMixedGenerationDecisionGlobalConcurrency(t *testing.T) {
 	s = h.save(s)
 	var b Batch
 	h.api("POST", "/api/runs", selectedRun(s, 20), 202, &b)
-	d := h.wait(b.ID)
-	if peak.Load() > 20 || peak.Load() < 2 || gen.Load() != 60 || judge.Load() != 60 || d.Batch.Evaluation.Completed != 120 {
-		t.Fatalf("global cap peak%d gen%d decision%d batch%+v", peak.Load(), gen.Load(), judge.Load(), d.Batch)
+	h.wait(b.ID)
+	d := h.waitEvaluation(b.EvaluationExecutionID)
+	if peak.Load() > 20 || peak.Load() < 2 || gen.Load() != 60 || judge.Load() != 60 || d.Evaluation.Completed != 120 {
+		t.Fatalf("global cap peak%d gen%d decision%d batch%+v", peak.Load(), gen.Load(), judge.Load(), d.Evaluation)
 	}
 }
 

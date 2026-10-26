@@ -21,6 +21,8 @@ import { $ } from './utils.js';
 import { bindHistoryEvents } from './history.js';
 import { configureMutations } from './mutations.js';
 import { bindMetricEvents, renderMetricSelection, renderMetricsView } from './metrics.js';
+import { bindTemplatePreviewEvents, renderTemplatePreview } from './template-preview.js';
+import { bindEvaluationEvents, refreshEvaluations } from './evaluations.js';
 
 function renderAll() {
   ensureSelections();
@@ -28,6 +30,7 @@ function renderAll() {
   renderCollectionNav();
   renderTemplateOptions();
   renderTemplateEditor();
+  renderTemplatePreview();
   renderGroupCards();
   renderModelSuggestions();
   renderProviders();
@@ -55,6 +58,7 @@ async function bootstrap() {
     setConnection(true);
     renderAll();
     await refreshRuns({ quiet: true });
+    await refreshEvaluations({ quiet: true });
     await resumeActiveRun();
     hideBanner();
   } catch (err) {
@@ -77,9 +81,11 @@ async function init() {
 function renderView(view) {
   renderCollectionNav();
   renderShell();
+  renderTemplatePreview();
   if (view === 'workbench') {
     renderTemplateOptions();
     renderTemplateEditor();
+    renderTemplatePreview();
     renderGroupCards();
     refreshRunPlan();
   } else if (view === 'cases') {
@@ -92,6 +98,7 @@ function renderView(view) {
     renderGroupEditor();
   } else if (view === 'history') {
     renderHistoryList();
+    refreshEvaluations({ quiet: true });
     if (!App.runsLoaded) refreshRuns();
   } else if (view === 'metrics') {
     renderMetricsView();
@@ -107,6 +114,8 @@ function renderView(view) {
 function renderSavedState() {
   renderTemplateOptions();
   renderTemplateEditor();
+  renderTemplatePreview();
+  renderIO();
   renderGroupCards();
   renderSettings();
   renderMetricSelection();
@@ -116,6 +125,8 @@ function renderSavedState() {
 function renderCredentialState() {
   renderProviders();
   renderSelectionPanel();
+  renderTemplatePreview();
+  renderIO();
   renderMetricSelection();
   renderMetricsView();
 }
@@ -128,6 +139,7 @@ async function renderReloadedState() {
 function renderMutatedState() {
   renderCollectionNav();
   renderGroupCards();
+  renderTemplatePreview();
   renderLibrary();
   if (App.activeView === 'case-io') renderIO();
   if (App.activeView === 'group-editor') renderGroupEditor();
@@ -193,10 +205,6 @@ function bindStaticEvents() {
     if (typeof App.bannerAction === 'function') App.bannerAction();
   });
 
-  document.addEventListener('click', (e) => {
-    const details = $('insert-var-menu');
-    if (details && details.open && !details.contains(e.target)) details.open = false;
-  });
 
   document.addEventListener('input', () => markEdit(), true);
   document.addEventListener('change', () => markEdit(), true);
@@ -209,12 +217,6 @@ function bindStaticEvents() {
     }
   });
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const menu = $('insert-var-menu');
-      if (menu && menu.open) menu.open = false;
-    }
-  });
   bindTemplateEvents();
   bindGroupEvents();
   bindOutputEvents();
@@ -227,6 +229,8 @@ function bindStaticEvents() {
   bindIOEvents();
   bindRunEvents();
   bindMetricEvents();
+  bindTemplatePreviewEvents();
+  bindEvaluationEvents();
 }
 
 configureNavigation(renderView);

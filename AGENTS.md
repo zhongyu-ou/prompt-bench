@@ -1,88 +1,62 @@
 # Repository Guidelines
 
-## Project Overview
+## Scope and entry points
 
-Promptbench is a single-user, loopback-only prompt workbench: edit Cases and Go prompt templates, configure explicit comparison groups and Providers, preview requests, run repeated calls, and inspect durable history. It currently supports OpenAI Chat Completions. It does not judge output quality; the local fixture verifies transport and lifecycle, not model behavior.
+Promptbench is a single-user, loopback-only prompt workbench with prepared Case inputs, Go prompt templates, explicit comparison groups, Providers, reusable metrics and durable history. Text generation and independent evaluation have separate records and lifecycles. User-configured judgments are not an implicit generation pass/fail gate; fixtures do not establish real model quality.
 
-## Architecture & Data Flow
+Read the root [README](README.md) for operations, checks and document navigation, [GLOSSARY](GLOSSARY.md) before changing concepts, and only the contracts relevant to the change. [Architecture](docs/architecture/overview.md) owns current responsibilities and cross-module constraints; its linked ADRs own consequential decisions and reasons. The [client contract](docs/architecture/client-contract.md) owns current HTTP semantics, including Cases and import/export. Resolve code/document conflicts in the same change, not with a dated correction appended later.
 
-- Go application implementation lives in `internal/workbench`, with an embedded vanilla-JavaScript SPA and PostgreSQL (`pgx/v5` through `database/sql`). No framework, ORM or frontend bundler.
-- Startup: `workbench.Run()` parses launch flags, reads strict `server`/`database` YAML, loads optional Provider environment values, binds loopback, opens/locks PostgreSQL, constructs `newEngine(store, getenv)` and `newAPI(store, engine, host)`, then serves HTTP.
-- Execution: browser saves configuration → `/api/preview` or `/api/runs` → `renderRequest`/`freeze` → immutable request snapshot → engine workers → upstream HTTP → redacted persisted results. The browser polls run detail; replay uses the stored snapshot, not current configuration.
-- Current editable state is one versioned JSON document. PostgreSQL stores it and batches, results, encrypted credentials and migration archives as BYTEA. A single physical session serializes transactions and holds a schema-scoped advisory lock. Session loss requires process restart; never silently reconnect or use transaction pooling.
-- Exactly one active batch; at most 20 requests in flight globally. No automatic retries or redirects. Stop cancels unissued attempts only; in-flight requests finish and persist. Restart marks unfinished work interrupted, not safe to resend automatically.
-- Cases are `{id, variables}` inputs. Collections reference Cases; groups choose template, Provider, model, parameters, repeats, and language routes. Selection unions Case IDs and collection membership, deduplicates, then excludes temporary omissions. See `GLOSSARY.md` before changing these concepts.
+## Code ownership
 
-## Key Directories
+- `main.go` is a thin entry calling `workbench.Run()`. Application implementation, embedded seed and white-box Go tests live in `internal/workbench/`; no separate `src/` tree or speculative service/repository layers.
+- `web/embed.go` exports `Assets`, rooted at `index.html`. Browser assets are embedded at compilation: restart or rebuild after changing `web/`.
+- `web/js/main.js` is the sole browser entry. Use native ES modules with direct named imports; no `window` globals, barrel or event bus. Install existing `configure*` composition hooks before startup. Detailed ownership is in architecture, not a second module inventory here.
+- `web/index.html` owns stylesheet order. Preserve the existing `web/css/` cascade, including the original responsive rules before later workflow overrides.
+- `cmd/fixture/` is an unpaid local generation fixture. `web/*.test.mjs` uses Node's built-in test runner. There is no frontend bundler, package manager, ORM or web framework.
+- `database/` is a private credential-key directory, not a test fixture. Never use it for experiments.
 
-- Root Go files: backend, domain types, persistence, execution, and white-box tests; no separate `src/` tree.
-- `web/`: embedded HTML/CSS and global scripts. `app.js` loads before `case.js`; both share `App` state and API helpers.
-- `cmd/fixture/`: standalone, unpaid OpenAI-compatible HTTP fixture.
-- `docs/`: API contracts and backend/browser QA evidence; `docs/tasks/` contains historical task context.
-- `database/`: private local runtime state, not fixtures. Never use it for experiments or tests.
+## Implementation invariants
 
-## Development Commands
+- Keep protocol behavior in `Protocol` adapters (`Validate`, `Prepare`, `Authorize`, `Decode`), not rendering or scheduling. Capabilities are not Provider brands: generation groups use text-generation protocols; model metrics use decision-capable protocols.
+- Reuse `openStore(databaseURL, dataDir)`, `newEngine(store, getenv)` and `newAPI(store, engine, host)`. Environment lookup is injected as `func(string) string`; do not add global configuration machinery. Application database settings come only from strict YAML, not environment overrides.
+- Keep PostgreSQL's single physical session and schema-scoped advisory lock. Session loss requires process restart; never silently reconnect or use transaction pooling. Do not reset data to bypass a migration/schema error. Preserve existing snapshot/result/request/ciphertext bytes and legacy inline outcomes.
+- One active execution (generation or independent evaluation), at most 20 calls in flight globally. No automatic retries or outbound redirects. Stop cancels unissued work; issued requests finish and persist. Restart marks unfinished work interrupted, never safe to resend automatically.
+- Preserve optimistic concurrency. Generic `PUT /api/state` uses `version`; Cases/collections belong to dedicated mutations using `state_version` and `mutateState`. Stale writes return 409. Generic saves must not rewrite Case JSON.
+- Preserve JSON fidelity using `decode`/`decodeStored` (`UseNumber`) and raw `variables_json` paths. Omitted, null, zero and literal strings differ. Case form edits patch changed fields; imported numbers must not round-trip through JavaScript floats.
+- Preview, sent and persisted request bytes must agree. Replay uses frozen inputs rather than current editable state. Import fingerprints normalize object-key order only; file IDs do not update existing Cases. API documents own the exact payloads and error rules.
+- Evaluations freeze source selection, metrics, targets and model settings. Only completed judgments enter summary denominators. Do not convert legacy inline outcomes into independent evaluations or conflate generation repeats with evaluation rounds.
+- Use `sendJSON`, `fail` and `statusFor`; errors are `{"error":"..."}`. `statusFor` defaults to 400, so internal failures need explicit classification.
+- Frontend saves and version adoption belong to `persistence.js`/`mutations.js`; transport wrappers belong to `api.js`. Preserve dirty/edit-generation guards and stale-preview tokens so async responses cannot overwrite newer edits. Escape server text with `esc()` or `textContent`. UI copy is Chinese; machine statuses and backend errors are English.
+- Keep credentials write-only; use existing credential helpers and redact upstream echoes before persistence. Never put secrets in state, snapshots, exports or logs. Preserve loopback binding, Host/Origin checks and JSON-only mutations.
 
-```sh
-make help                      # available targets
-make run                       # loads .env if present
-make run ARGS="--help"          # application flags
-make build                     # builds ./promptbench, including web assets
-make test                      # go test ./...
-go test -race ./...             # concurrency regression check
-go test ./... -run TestName     # targeted test
-```
+## Commands and runtime safety
 
-No repository lint target/config exists. Use standard `gofmt` for changed Go files; `go vet ./...` is available as an additional check. Optional frontend syntax checks: `node --check web/app.js` and `node --check web/case.js`.
+Use the root [README](README.md#development-checks) for commands, safe test database configuration and isolated fixture steps, and its operation sections for launch flags, backups and Docker.
 
-For isolated smoke work, use two terminals:
+- Go 1.25+ is required; Node.js LTS is needed for JavaScript lint/tests, not asset building.
+- `make ci-check` is the non-mutating formatting/lint/compile check and the GitHub Actions entry. `make check` runs `gofmt -w` first: do not use it when unrelated source formatting must remain untouched.
+- `make test`, `test-backend` and `test-race` require an explicit test database ending in `_test`. Make may load the Git-ignored `.env.test`; direct `go test` needs the environment variable explicitly. Never load the application config or point tests at the application database.
+- `go run . --help` returns before configuration, env-file or database access. Normal startup does not. `make run`/`make dev` conditionally load `.env`; direct `go run .` does not. Process environment wins over env-file values; manual Provider credentials override env credentials. Restart after YAML/env changes.
+- Consult `.env.example`, `.env.test.example` and `config/config.example.yml`, never real secret files for exploration. Do not commit actual config, environment files, keys, locks or binaries. Backups require a PostgreSQL backup plus its matching `credentials.key`.
+- Check planned call counts before using real Providers. Seeded groups default to 20 repeats per Case; fixture success does not authorize paid calls, deployment or user-data migration.
 
-```sh
-go run ./cmd/fixture --listen 127.0.0.1:9797 --delay 150ms
-go run . --config /path/to/private-smoke.yml --listen 127.0.0.1:8788 --data-dir /tmp/promptbench-smoke
-```
+## Testing discipline
 
-The smoke YAML must name a separate empty PostgreSQL database, never the normal application database.
+- Go tests use standard `testing`, `httptest`, local HTTP Providers and real isolated PostgreSQL schemas. Reuse `newTestStoreTarget`, `newHarness`, `fixtureState`, `h.api` and `h.wait`. Missing test database settings fail, never skip or fall back to real config. Cleanup closes stores before dropping only the test's newly created schema.
+- Exercise public HTTP mutations rather than bypassing version checks through `h.save`. Use channel-controlled Providers for in-flight behavior, release blocked handlers in cleanup and bound asynchronous waits.
+- Do not add `t.Parallel()` indiscriminately: protocol tests mutate the adapter registry. Restore modified globals.
+- Protect consumer-visible invariants: byte equality, frozen replay, number fidelity, atomic failed writes, stale-version rejection, migration/history preservation, evaluation denominators, credential secrecy, concurrency limits and Stop/recovery behavior. There is no coverage-percentage target.
+- Frontend behavior tests belong in `web/*.test.mjs`. For UI changes, exercise the affected flow in the browser with isolated data and fixtures; syntax checks and Node tests are not visual verification.
+- Report checks actually run and their limits. Dry-run command expansion, compilation and historical evidence are not passing database tests or proof of real-provider access.
 
-Configure a Provider at `http://127.0.0.1:9797/v1` with no credential env name and select it in a group. Models `fixture-http-error` and `fixture-invalid-json` exercise failures; increase `--delay` to observe Stop/progress. Check the planned request count before using real Providers: initial groups default to 20 repeats per Case.
+## Documentation closeout
 
-## Code Conventions & Common Patterns
-
-- Follow existing Go naming and `gofmt`; domain/wire types live in `model.go`. Keep protocol-specific behavior in `Protocol` adapters (`Validate`, `Prepare`, `Authorize`, `Decode`), not rendering or scheduling.
-- Reuse constructor seams: `openStore(databaseURL, dataDir)`, `newEngine(store, getenv)`, and `newAPI(store, engine, host)`. Environment lookup is injected as `func(string) string`; avoid new global configuration machinery. Application database settings come only from YAML, not environment overrides.
-- Preserve optimistic concurrency. Generic `PUT /api/state` uses `version` and only edits templates, Providers, settings, and draft. Dedicated resource mutations use `state_version` and `mutateState`; stale writes return 409. Cases/collections cannot be written through generic state PUT.
-- Preserve JSON fidelity: use existing `decode`/`decodeStored` (`UseNumber`) and raw `variables_json` paths. Omitted, `null`, zero, and literal strings are distinct. Case form edits send changed-field patches; do not round-trip imported numbers through JavaScript floats.
-- Preview, sent request, and persisted request bytes must agree. Preserve frozen history and raw-body/hash fidelity; migrations must not rewrite historical snapshot/result blobs. Import fingerprints canonicalize object-key order only; file IDs never update existing Cases.
-- Use `sendJSON`, `fail`, and `statusFor`; API errors are `{"error":"..."}`. `statusFor` defaults to 400, so internal failures need explicit handling rather than accidental validation errors.
-- Frontend: reuse `App`, render functions, `apiRaw` wrappers, and `stateMutation`. Preserve dirty/edit-generation guards and stale-preview tokens so async responses cannot overwrite newer edits. Escape interpolated server text with `esc()` or use `textContent`. UI copy is Chinese; machine statuses and backend errors are English.
-- Keep manual credentials write-only; resolve them through existing credential helpers and redact upstream text before persistence. Never serialize secrets into state, snapshots, exports, or logs. Preserve Host/Origin checks and loopback-only binding.
-
-## Important Files
-
-| Files | Responsibility |
-| --- | --- |
-| `main.go`, `server.go` | Flags, lifecycle, embedded assets, HTTP security/routing/JSON helpers |
-| `model.go`, `render.go` | Domain/wire types, validation, templates, previews, frozen run plans |
-| `engine.go`, `protocol.go` | Scheduling, HTTP execution, protocol boundary |
-| `store.go`, `migrate.go`, `credentials.go`, `config.go` | PostgreSQL, session locking/recovery, atomic schema initialization, encryption/redaction, strict YAML configuration |
-| `case_workflow.go`, `case_package.go` | Cases, collections, selection, lossless edits, JSON/JSONL import/export |
-| `seed.go`, `seed.tmpl` | First-run example configuration and prompt |
-| `Makefile`, `go.mod`, `.env.example` | Commands, Go/dependency versions, credential env examples |
-| `docs/api.md`, `docs/case-api.md` | API contracts; consult before changing endpoints |
-
-## Runtime/Tooling Preferences
-
-- `go.mod` requires Go 1.25.0 or newer; use Go modules and a reachable PostgreSQL service. Node is optional for JS syntax checks; there is no npm/Bun build or package manager workflow.
-- Defaults: `--config config/config.yml`, YAML server `127.0.0.1:8787`, `--data-dir database` (local credential key directory only), no env file. Copy the committed example to the Git-ignored actual YAML and keep it 0600. Explicit `--listen` overrides YAML. `make run` conditionally passes `--env-file .env`; direct `go run .` does not. Process environment wins over Provider env-file values; restart after YAML/env changes.
-- Manual Provider credentials override env credentials. Seeded env names are `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_4O_KEY`; consult `.env.example`, never real `.env` contents.
-- Assets are embedded at compilation: restart `go run .` or rebuild the executable after changing `web/`.
-- Never commit actual config, `.env`, retained SQLite sources, `credentials.key`, locks or built binaries. For backups, stop the app and preserve a PostgreSQL backup plus matching `credentials.key`. Runtime does not open SQLite; never reset real data to bypass schema errors.
-
-## Testing & QA
-
-- Tests use standard `testing`, `httptest`, real isolated PostgreSQL schemas and local HTTP Providers; no paid service required. Explicit `PROMPTBENCH_TEST_DATABASE_URL` must name a database ending in `_test`; missing settings fail, never skip or load real config. Reuse `newTestStoreTarget`, `newHarness`, `fixtureState`, `h.api` and `h.wait`; cleanup closes stores before dropping only that test's newly created schema.
-- Exercise public HTTP mutations rather than using `h.save` to bypass version checks. Use channel-controlled Providers for in-flight scheduling/credential tests, release blocked handlers in cleanup, and bound asynchronous waits.
-- Do not add `t.Parallel()` indiscriminately: protocol tests mutate the global adapter registry. Restore any modified globals.
-- Protect consumer-visible invariants: preview/sent/persisted byte equality, frozen replay, number fidelity, atomic failed writes, stale-version rejection, migration/history preservation, credential secrecy, concurrency cap, and Stop/recovery behavior.
-- There is no configured coverage percentage or frontend automated test suite. `docs/backend-check.md` and `docs/case-backend-check.md` record backend evidence; `docs/ui-check.md` and `docs/case-ui-check.md` record actual browser checks. These are scoped historical evidence, not proof that current changes pass.
-- For UI changes, run the app with isolated data and the fixture, exercise the affected browser flow, and record relevant evidence/limitations. Fixture success never establishes real-provider access or translation quality.
+- Give each durable fact one owner: operations and checks in README, concepts in GLOSSARY, current structure/constraints in the architecture overview, HTTP semantics in the client contract, and consequential decisions in ADRs. Other documents link rather than copy field contracts, module inventories or verification logs. Maintain current facts in place; do not append execution history.
+- Documents describe repository behavior, not current deployment, process health or user inventory. Source/tests establish implementation, while current contracts establish intended behavior; resolve disagreements explicitly rather than promoting a bug or an unimplemented proposal into the contract.
+- Keep approved but unimplemented behavior out of current contracts. Use `docs/tasks/<bounded-change>.md` only when unfinished work needs handoff; record current scope, confirmed choices/sources, open questions and next action rather than copied contracts or rounds of discussion. No task document is required for self-contained work.
+- At completion, migrate still-valid knowledge to its owners and remove completed task material. A new requirement starts new bounded work. Verification limits or unperformed deployment do not create product requirements or authorize operations; do not create empty backlogs or retrospective change reports.
+- Do not invent historical decision dates, approvals or universal claims from version-specific probes. ADRs record costly/surprising choices with real alternatives; no ADR index or template is required.
+- Report actual verification results and limits in the response or change delivery by default; do not automatically create evidence documents, migration narratives or validation ledgers. Persist execution material only for an explicit audit/retention requirement or a concrete unresolved investigation, with a defined purpose and scope. Keeping an artifact does not make it part of default project context.
+- Start investigations from current requirements, contracts, code, data and reproducible behavior. Consult relevant commits or historical artifacts only for a specific question that current state cannot answer. Old successful checks do not prove current correctness.
+- Removing narrative documentation does not authorize deleting real backups, user data, images or original runtime artifacts. Never access secrets, live databases or backups merely to tidy documentation.
+- After reorganizing documents, check local links and heading anchors. Keep the cleanup's own execution report out of permanent documentation.

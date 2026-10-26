@@ -378,8 +378,7 @@ function caseEditorDirty() {
   if (!ed) return false;
   return ed.jsonText !== ed.baseline.raw
     || ed.editedFields.size > 0
-    || ed.editedExtras.size > 0
-    || ed.removedExtras.size > 0
+    || ed.removedFields.size > 0
     || !setEqual(ed.collectionIds, ed.baselineCollections);
 }
 

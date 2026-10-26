@@ -374,7 +374,7 @@ func TestFutureDatabaseVersionRejectedWithoutDroppingState(t *testing.T) {
 	if err = s.db.QueryRow("SELECT data FROM state WHERE id=1").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec("UPDATE schema_version SET version=2 WHERE id=1"); err != nil {
+	if _, err = s.db.Exec("UPDATE schema_version SET version=$1 WHERE id=1", postgresSchemaVersion+1); err != nil {
 		t.Fatal(err)
 	}
 	s.close()
@@ -398,7 +398,7 @@ func TestFutureDatabaseVersionRejectedWithoutDroppingState(t *testing.T) {
 	if err = check.QueryRow("SELECT version FROM schema_version WHERE id=1").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if after != before || version != 2 {
+	if after != before || version != postgresSchemaVersion+1 {
 		t.Fatal("future state downgraded or reset")
 	}
 }
