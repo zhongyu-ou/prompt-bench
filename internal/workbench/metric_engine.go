@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -204,12 +203,7 @@ func (e *Engine) evaluationWorker(a *activeEvaluation) {
 		if outcome.FinishedAt == "" {
 			outcome.FinishedAt = now()
 		}
-		raw, _ := json.Marshal(outcome)
-		raw = redactBody(raw, e.store.sensitiveValues())
-		var clean MetricOutcome
-		if decodeStored(raw, &clean) == nil {
-			outcome = clean
-		}
+		outcome = redactEvaluationOutcome(outcome, e.store.sensitiveValues())
 		e.mu.Lock()
 		entry.Outcome = outcome
 		a.detail.Outcomes[idx] = entry

@@ -14,6 +14,7 @@ let observedImportKey = '';
 let observedImportBaseline;
 let importTemplateChosen = false;
 let fieldsRequest = null;
+let templateInputsConflict = false;
 let importOperation = null;
 
 function savedImportTemplates() {
@@ -52,6 +53,7 @@ function syncImportState() {
   App.io.templateInputs = null;
   App.io.templateInputsBusy = false;
   App.io.templateInputsError = '';
+  templateInputsConflict = false;
   fieldsRequest = null;
   invalidateImportPreview();
 }
@@ -83,9 +85,19 @@ async function refreshImportTemplateInputs() {
       const data = await apiPost('/api/templates/inputs', { state_version: version, template_id: templateId });
       if (!current()) return false;
       App.io.templateInputs = data;
+      templateInputsConflict = false;
+      App.io.recoverNeeded = false;
       return true;
     } catch (err) {
-      if (current()) App.io.templateInputsError = `输入字段读取失败：${err.message}`;
+      if (current()) {
+        if (err.status === 409) {
+          templateInputsConflict = true;
+          App.io.recoverNeeded = true;
+        }
+        App.io.templateInputsError = err.status === 409
+          ? '输入字段读取冲突：服务端状态版本已变化（409）。文件、模板与目标集合已保留；请重新载入并解析。'
+          : `输入字段读取失败：${err.message}`;
+      }
       return false;
     } finally {
       if (fieldsRequest === request) {
@@ -139,7 +151,8 @@ function invalidateImportPreview() {
   App.io.previewVersion = null;
   App.io.previewFingerprint = '';
   App.io.previewStale = false;
-  App.io.recoverNeeded = false;
+  // Editing import content does not resolve a field lookup's version conflict.
+  App.io.recoverNeeded = templateInputsConflict;
   App.io.expanded = false;
   App.io.jsonRows.clear();
   App.io.error = '';
@@ -237,7 +250,7 @@ function renderIO() {
   if (preview && preview.warnings && preview.warnings.length) warnings.push(...preview.warnings);
   $('io-error').textContent = [App.io.error, ...warnings].filter(Boolean).join(' ');
   $('io-recover-btn').hidden = !App.io.recoverNeeded;
-  $('io-recover-btn').disabled = App.io.busy || App.mutating;
+  $('io-recover-btn').disabled = App.io.busy || App.mutating || App.io.templateInputsBusy;
   $('io-commit-btn').disabled = !preview || stale || !!templateError || App.io.templateInputsBusy || App.io.busy || App.mutating;
   $('io-cancel-btn').disabled = App.io.busy || App.mutating;
   $('io-choose-file').disabled = App.io.busy || App.mutating;
@@ -436,7 +449,6 @@ async function recoverImportPreview() {
   const fingerprint = ioFingerprint();
   const templateId = App.io.templateId;
   const inputFormat = App.io.inputFormat;
-  if (!App.io.content.trim()) return;
   const operation = { kind: 'recover' };
   importOperation = operation;
   App.io.busy = true;
@@ -461,8 +473,11 @@ async function recoverImportPreview() {
     renderIO();
     return;
   }
+  templateInputsConflict = false;
   App.io.recoverNeeded = false;
-  await requestImportPreview();
+  const version = App.version;
+  if (!await refreshImportTemplateInputs() || version !== App.version || fingerprint !== ioFingerprint()) return;
+  if (App.io.content.trim()) await requestImportPreview();
 }
 
 async function downloadCaseExport() {

@@ -132,7 +132,8 @@ type promptVisit struct {
 }
 
 type promptLoop struct {
-	exits []promptScope
+	exits     []promptScope
+	iterating bool
 }
 
 type promptInputWalker struct {
@@ -207,10 +208,19 @@ func (w *promptInputWalker) list(list *parse.ListNode, scope *promptScope) {
 				continue
 			}
 			w.walkTemplate(called, source)
-		case *parse.BreakNode, *parse.ContinueNode:
+		case *parse.BreakNode:
 			if len(w.loops) > 0 {
 				loop := w.loops[len(w.loops)-1]
 				loop.exits = append(loop.exits, scope.clone())
+			}
+		case *parse.ContinueNode:
+			// Native continue is caught by an iteration, not by a range's
+			// else branch. Break, in contrast, is caught by the whole range.
+			for i := len(w.loops) - 1; i >= 0; i-- {
+				if loop := w.loops[i]; loop.iterating {
+					loop.exits = append(loop.exits, scope.clone())
+					break
+				}
 			}
 		}
 	}
@@ -241,6 +251,7 @@ func (w *promptInputWalker) rangeList(node *parse.RangeNode, scope *promptScope)
 		mergePromptScope(&zero, zero, exit)
 	}
 	entry := header.clone()
+	loop.iterating = true
 	for {
 		body := entry.clone()
 		loop.exits = nil
@@ -290,6 +301,30 @@ func (w *promptInputWalker) command(command *parse.CommandNode, scope *promptSco
 			return w.value(command.Args[0], scope)
 		}
 	}
+	if function, ok := command.Args[0].(*parse.IdentifierNode); ok && (function.Ident == "and" || function.Ident == "or") {
+		// The first explicit argument always runs. Later arguments only run
+		// on the continuing path; join its effects with each earlier exit.
+		// A piped value has already run, before any explicit arguments.
+		args := command.Args[1:]
+		if len(args) == 0 {
+			if hasPiped {
+				return piped
+			}
+			return promptSource{kind: promptOther}
+		}
+		source := w.value(args[0], scope)
+		if len(args) > 1 {
+			continuing := scope.clone()
+			for _, arg := range args[1:] {
+				source = mergePromptSource(source, w.value(arg, &continuing))
+				mergePromptScope(scope, *scope, continuing)
+			}
+		}
+		if hasPiped {
+			source = mergePromptSource(source, piped)
+		}
+		return source
+	}
 	args := make([]promptSource, 0, len(command.Args))
 	for _, arg := range command.Args[1:] {
 		args = append(args, w.value(arg, scope))
@@ -316,15 +351,6 @@ func (w *promptInputWalker) command(command *parse.CommandNode, scope *promptSco
 				} else if source.kind == promptUnknown {
 					w.dynamic = true
 				}
-			}
-			return source
-		case "and", "or":
-			if len(args) == 0 {
-				return promptSource{kind: promptOther}
-			}
-			source := args[0]
-			for _, arg := range args[1:] {
-				source = mergePromptSource(source, arg)
 			}
 			return source
 		case "call":

@@ -187,12 +187,92 @@ func evaluationDetailSummary(d EvaluationDetail) []MetricSummary {
 	}
 	return out
 }
+
+// Redact content, not the identifiers, discriminators or executable configuration
+// that connect frozen inputs, workers, summaries and replay. Copy mutable content
+// so redaction never changes the source generation's historical evidence.
 func redactEvaluationSnapshot(s EvaluationSnapshot, keys map[string]string) EvaluationSnapshot {
-	raw, _ := json.Marshal(s)
-	raw = redactBody(raw, keys)
-	var clean EvaluationSnapshot
-	if decodeStored(raw, &clean) == nil {
-		return clean
+	if len(keys) == 0 {
+		return s
+	}
+	s.Results = append([]EvaluationSource(nil), s.Results...)
+	for i := range s.Results {
+		source := &s.Results[i]
+		r := &source.Result
+		r.ResponseModel = redact(r.ResponseModel, keys)
+		r.Output = redact(r.Output, keys)
+		r.Error = redact(r.Error, keys)
+		r.Request = redactEvaluationPayload(r.Request, keys)
+		r.RawRequest = string(redactBody([]byte(r.RawRequest), keys))
+		r.RawResponse = string(redactBody([]byte(r.RawResponse), keys))
+		source.Case.Name = redact(source.Case.Name, keys)
+		source.Case.Description = redact(source.Case.Description, keys)
+		if source.Case.Variables != nil {
+			source.Case.Variables = redactEvaluationValue(source.Case.Variables, keys).(map[string]any)
+		}
+		request := &source.Request
+		request.Request = redactEvaluationPayload(request.Request, keys)
+		request.RawRequest = string(redactBody([]byte(request.RawRequest), keys))
 	}
 	return s
+}
+
+// Unlike a serialized typed record, these JSON objects are arbitrary content:
+// their property names and string values can contain upstream credential echoes.
+func redactEvaluationValue(value any, keys map[string]string) any {
+	switch v := value.(type) {
+	case string:
+		return redact(v, keys)
+	case map[string]any:
+		clean := make(map[string]any, len(v))
+		for name, item := range v {
+			clean[redact(name, keys)] = redactEvaluationValue(item, keys)
+		}
+		return clean
+	case []any:
+		clean := make([]any, len(v))
+		for i, item := range v {
+			clean[i] = redactEvaluationValue(item, keys)
+		}
+		return clean
+	default:
+		return value
+	}
+}
+
+func redactEvaluationPayload(raw json.RawMessage, keys map[string]string) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var value any
+	if decodeStored(raw, &value) != nil {
+		return raw
+	}
+	value, changed := redactJSON(value, keys)
+	if !changed {
+		return raw
+	}
+	clean, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return clean
+}
+
+func redactEvaluationOutcome(out MetricOutcome, keys map[string]string) MetricOutcome {
+	if len(keys) == 0 {
+		return out
+	}
+	out.Reason = redact(out.Reason, keys)
+	out.Error = redact(out.Error, keys)
+	out.ResponseModel = redact(out.ResponseModel, keys)
+	out.RawResponse = string(redactBody([]byte(out.RawResponse), keys))
+	if out.Legend != nil {
+		legend := make(map[string]string, len(out.Legend))
+		for label, description := range out.Legend {
+			legend[label] = redact(description, keys)
+		}
+		out.Legend = legend
+	}
+	return out
 }

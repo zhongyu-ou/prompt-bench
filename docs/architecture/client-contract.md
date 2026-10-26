@@ -84,10 +84,12 @@ case-insensitively. Other fields pass unchanged: omission differs from
 null/zero/`none`; no temperature/reasoning defaults. Runs are 1–1000, concurrency
 1–20, timeout 1–3600 seconds.
 
-No plaintext manual key is stored in state, snapshots, raw requests, exports, logs
-or GET responses. Missing/corrupt encrypted credential material is never treated
-as an absent override. See [architecture](overview.md) for encrypted storage,
-keyfile and backup requirements.
+Manual credential values are write-only: credential records never serialize
+plaintext keys into state, snapshots, requests, exports, logs or GET responses.
+User-authored fields are not credential storage. Missing/corrupt encrypted
+credential material is never treated as an absent override. See the
+[security boundary](overview.md#security-and-metric-execution-boundaries) for
+content redaction, configuration preservation and keyfile/backup requirements.
 
 ### Cases and collections
 

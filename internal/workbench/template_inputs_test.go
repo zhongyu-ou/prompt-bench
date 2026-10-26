@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"text/template"
 )
 
 func TestTemplateInputsScopeAndDynamicReferences(t *testing.T) {
@@ -66,6 +67,157 @@ func TestTemplateInputsScopeAndDynamicReferences(t *testing.T) {
 			}
 			if inputs.Keys == nil || strings.Join(inputs.Keys, ",") != test.keys || inputs.Dynamic != test.dynamic {
 				t.Fatalf("inputs = %#v, want keys %q dynamic=%v", inputs, test.keys, test.dynamic)
+			}
+		})
+	}
+}
+
+func TestTemplateInputsConditionalEvaluationPreservesNativeRootLookups(t *testing.T) {
+	const lookup = `{{index . $key}}|{{if eq (index . .Query) nil}}missing{{else}}present{{end}}`
+	for _, test := range []struct {
+		name, content, keys, want string
+		variables                 map[string]any
+	}{
+		{
+			name: "and skips assignment", content: `{{$key := "Real"}}{{if and false ($key = "Wrong")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "or skips assignment", content: `{{$key := "Real"}}{{if or true ($key = "Wrong")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "and first argument always assigns", content: `{{$key := "Wrong"}}{{if and ($key = "Real") false}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "or first argument always assigns", content: `{{$key := "Wrong"}}{{if or ($key = "Real") true}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "and later assignment may execute", content: `{{$key := "Wrong"}}{{if and true ($key = "Real")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "or later assignment may execute", content: `{{$key := "Wrong"}}{{if or false ($key = "Real")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "and continuing arguments see prior assignment", content: `{{$key := "Wrong"}}{{if and true ($key = "Real") (index . $key)}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "or continuing arguments see prior assignment", content: `{{$key := "Wrong"}}{{if or false (and ($key = "Real") false) (index . $key)}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "and pipeline executes before short circuit", content: `{{$key := "Wrong"}}{{if ($key = "Real") | and false}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "or pipeline executes before short circuit", content: `{{$key := "Wrong"}}{{if ($key = "Real") | or true}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "pipeline precedes explicit argument assignment", content: `{{$key := "Wrong"}}{{if ($key = "Real") | and ($key = "Later")}}{{end}}` + lookup,
+			keys: "Later,Query", want: "kept|missing", variables: map[string]any{"Later": "kept"},
+		},
+		{
+			name: "and pipeline does not make later argument eager", content: `{{$key := "Wrong"}}{{if ($key = "Real") | and false ($key = "Wrong")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "or pipeline does not make later argument eager", content: `{{$key := "Wrong"}}{{if ($key = "Real") | or true ($key = "Wrong")}}{{end}}` + lookup,
+			keys: "Query", want: "<no value>|missing",
+		},
+		{
+			name: "and only piped argument", content: `{{$key := "Wrong"}}{{if ($key = "Real") | and}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name: "or only piped argument", content: `{{$key := "Wrong"}}{{if ($key = "Real") | or}}{{end}}` + lookup,
+			keys: "Query,Real", want: "kept|missing", variables: map[string]any{"Real": "kept"},
+		},
+		{
+			name:    "continue in nested range else reaches outer iteration",
+			content: `{{$key := "Wrong"}}{{range .Items}}{{range .Empty}}{{else}}{{$key = "Real"}}{{continue}}{{end}}{{$key = "Wrong"}}{{end}}` + lookup,
+			keys:    "Items,Query", want: "<no value>|missing",
+			variables: map[string]any{"Items": []any{map[string]any{"Empty": []any{}}}},
+		},
+		{
+			name:    "continue through branch in nested range else",
+			content: `{{$key := "Wrong"}}{{range .Items}}{{range .Empty}}{{else}}{{if .Flag}}{{$key = "Real"}}{{continue}}{{end}}{{end}}{{$key = "Wrong"}}{{end}}` + lookup,
+			keys:    "Items,Query", want: "<no value>|missing",
+			variables: map[string]any{"Items": []any{map[string]any{"Empty": []any{}, "Flag": true}}},
+		},
+		{
+			name:    "break in nested range else stays in inner range",
+			content: `{{$key := "Real"}}{{range .Items}}{{range .Empty}}{{else}}{{$key = "Other"}}{{break}}{{end}}{{$key = "Real"}}{{end}}` + lookup,
+			keys:    "Items,Query,Real", want: "kept|missing",
+			variables: map[string]any{"Real": "kept", "Items": []any{map[string]any{"Empty": []any{}}}},
+		},
+		{
+			name:    "continue in nested range body stays in inner iteration",
+			content: `{{$key := "Real"}}{{range .Items}}{{range .Empty}}{{$key = "Other"}}{{continue}}{{end}}{{$key = "Real"}}{{end}}` + lookup,
+			keys:    "Items,Query,Real", want: "kept|missing",
+			variables: map[string]any{"Real": "kept", "Items": []any{map[string]any{"Empty": []any{"element"}}}},
+		},
+		{
+			name:    "break in nested range body stays in inner range",
+			content: `{{$key := "Real"}}{{range .Items}}{{range .Empty}}{{$key = "Other"}}{{break}}{{end}}{{$key = "Real"}}{{end}}` + lookup,
+			keys:    "Items,Query,Real", want: "kept|missing",
+			variables: map[string]any{"Real": "kept", "Items": []any{map[string]any{"Empty": []any{"element"}}}},
+		},
+		{
+			name:    "continue preserves early assignment",
+			content: `{{$key := "Wrong"}}{{range .Items}}{{$key = "Real"}}{{continue}}{{$key = "Wrong"}}{{end}}` + lookup,
+			keys:    "Items,Query", want: "<no value>|missing", variables: map[string]any{"Items": []any{"element"}},
+		},
+		{
+			name:    "break preserves early assignment",
+			content: `{{$key := "Wrong"}}{{range .Items}}{{$key = "Real"}}{{break}}{{$key = "Wrong"}}{{end}}` + lookup,
+			keys:    "Items,Query", want: "<no value>|missing", variables: map[string]any{"Items": []any{"element"}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			variables := test.variables
+			if variables == nil {
+				variables = map[string]any{}
+			}
+			variables["Query"] = "Wrong"
+			native, err := template.New("native").Parse(test.content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output bytes.Buffer
+			if err := native.Execute(&output, variables); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != test.want {
+				t.Fatalf("native output = %q, want %q", output.String(), test.want)
+			}
+			s := fixtureState("http://127.0.0.1:1")
+			s.Cases[0].Variables = variables
+			s.Templates[0].Messages = []Message{{Role: "user", Content: test.content}}
+			inputs, err := templateInputs(s.Templates[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(inputs.Keys, ",") != test.keys || !inputs.Dynamic {
+				t.Fatalf("inputs = %#v, want keys %q and dynamic lookup", inputs, test.keys)
+			}
+			frozen, err := renderRequest(s, "a", s.Draft.Groups[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request struct {
+				Messages []Message `json:"messages"`
+			}
+			if err := json.Unmarshal(frozen.Request, &request); err != nil {
+				t.Fatal(err)
+			}
+			if len(request.Messages) != 1 || request.Messages[0].Content != output.String() {
+				t.Fatalf("rendered messages = %#v, want native output %q", request.Messages, output.String())
 			}
 		})
 	}

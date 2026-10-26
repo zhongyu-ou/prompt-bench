@@ -65,6 +65,7 @@ export function renderTemplatePreview() {
   const showingPreview = preview.mode === 'preview';
   $('template-mode-edit').setAttribute('aria-pressed', String(!showingPreview));
   $('template-mode-preview').setAttribute('aria-pressed', String(showingPreview));
+  $('template-mode-preview').disabled = preview.busy;
   $('template-message-body').classList.toggle('showing-preview', showingPreview);
   $('template-edit-panel').inert = showingPreview;
   panel.hidden = !showingPreview;
@@ -154,6 +155,7 @@ export function bindTemplatePreviewEvents() {
     renderTemplatePreview();
   });
   $('template-mode-preview').addEventListener('click', () => {
+    if (App.templatePreview.busy || App.saving || App.mutating || App.loading) return;
     actionGeneration += 1;
     App.templatePreview.mode = 'preview';
     renderTemplatePreview();

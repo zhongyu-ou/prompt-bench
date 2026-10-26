@@ -16,7 +16,9 @@ let listSequence = 0;
 let fetchingDetail = null;
 let listLoaded = false;
 let busy = false;
-let errorMessage = '';
+let actionErrorMessage = '';
+let detailErrorMessage = '';
+let listErrorMessage = '';
 let selectedRound = 1;
 
 function currentSource() {
@@ -39,7 +41,8 @@ function selectVersion(id) {
   detailSequence += 1;
   fetchingDetail = null;
   selectedRound = 1;
-  errorMessage = '';
+  actionErrorMessage = '';
+  detailErrorMessage = '';
   App.evaluationSelectedId = id;
   App.evaluationDetail = null;
   if (id && id !== LEGACY) void loadSelectedEvaluation();
@@ -54,7 +57,8 @@ function syncSource() {
     detailSequence += 1;
     fetchingDetail = null;
     selectedRound = 1;
-    errorMessage = '';
+    actionErrorMessage = '';
+    detailErrorMessage = '';
     App.evaluationSelectedId = null;
     App.evaluationDetail = null;
   }
@@ -136,15 +140,15 @@ export function renderEvaluationControls() {
       .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`);
     status.textContent = [`判断 ${done}/${execution.total || 0}`, ...counts, ...(!detail ? ['正在载入版本…'] : [])].join(' · ');
   } else status.textContent = '';
-  $('evaluation-error').textContent = errorMessage || execution?.error || '';
+  $('evaluation-error').textContent = actionErrorMessage || detailErrorMessage || listErrorMessage || execution?.error || '';
 }
 
-async function loadSelectedEvaluation() {
+async function loadSelectedEvaluation({ force = false } = {}) {
   const id = App.evaluationSelectedId;
   const runId = sourceRunId;
   if (!id || id === LEGACY || !runId) return;
   const key = `${runId}/${id}`;
-  if (fetchingDetail === key) return;
+  if (fetchingDetail === key && !force) return;
   fetchingDetail = key;
   const request = ++detailSequence;
   try {
@@ -152,14 +156,14 @@ async function loadSelectedEvaluation() {
     if (request !== detailSequence || currentSource()?.batch.id !== runId || App.evaluationSelectedId !== id) return;
     if (detail.evaluation.generation_run_id !== runId || detail.evaluation.id !== id) throw new Error('评估版本与当前生成批次不匹配。');
     App.evaluationDetail = detail;
-    errorMessage = '';
+    detailErrorMessage = '';
     const availableRounds = rounds(detail);
     if (availableRounds.length && !availableRounds.includes(selectedRound)) selectedRound = availableRounds[0];
     renderOutput();
     if (active(detail.evaluation)) startPoll();
   } catch (error) {
     if (request === detailSequence && currentSource()?.batch.id === runId && App.evaluationSelectedId === id) {
-      errorMessage = `载入评估版本失败：${error.message}`;
+      detailErrorMessage = `载入评估版本失败：${error.message}`;
       renderOutput();
     }
   } finally {
@@ -174,6 +178,7 @@ export async function refreshEvaluations({ quiet = false } = {}) {
     if (request !== listSequence) return;
     App.evaluations = Array.isArray(list) ? list : [];
     listLoaded = true;
+    listErrorMessage = '';
     syncSource();
     refreshRunPlan();
     renderOutput();
@@ -183,8 +188,8 @@ export async function refreshEvaluations({ quiet = false } = {}) {
     if (!selected || active(selected.evaluation)) await loadSelectedEvaluation();
   } catch (error) {
     if (request !== listSequence) return;
-    if (!quiet) { errorMessage = error.message; renderEvaluationControls(); }
-    else if (App.evaluationPollTimer) { errorMessage = `评估轮询失败：${error.message}`; renderEvaluationControls(); }
+    if (!quiet) { listErrorMessage = error.message; renderEvaluationControls(); }
+    else if (App.evaluationPollTimer) { listErrorMessage = `评估轮询失败：${error.message}`; renderEvaluationControls(); }
   }
 }
 
@@ -205,7 +210,7 @@ async function recalculate() {
   const revision = selectionRevision;
   if (!generationRunId || active(currentSource()?.batch) || hasKnownActiveBatch()) return;
   busy = true;
-  errorMessage = '';
+  actionErrorMessage = '';
   renderEvaluationControls();
   try {
     if (!await ensureSaved()) return;
@@ -232,7 +237,7 @@ async function recalculate() {
     await refreshEvaluations({ quiet: true });
     toast('已创建新评估版本；没有新生成请求，历史版本保持不变。', 'ok');
   } catch (error) {
-    if (currentSource()?.batch.id === generationRunId) errorMessage = error.message;
+    if (currentSource()?.batch.id === generationRunId) actionErrorMessage = error.message;
     else toast(error.message, 'error');
   } finally {
     busy = false;
@@ -254,17 +259,19 @@ export function bindEvaluationEvents() {
     const detail = selectedDetail();
     if (busy || !active(detail?.evaluation) || !window.confirm('停止此评估？尚未开始的判断取消，在途判断收尾。')) return;
     const runId = sourceRunId;
+    const id = detail.evaluation.id;
+    const revision = selectionRevision;
     busy = true;
+    actionErrorMessage = '';
     renderEvaluationControls();
     try {
-      const execution = await apiPost(`/api/evaluations/${encodeURIComponent(detail.evaluation.id)}/stop`, {});
-      App.evaluations = App.evaluations.map((entry) => entry.id === execution.id ? execution : entry);
-      if (currentSource()?.batch.id === runId && App.evaluationSelectedId === execution.id) {
-        App.evaluationDetail = { ...detail, evaluation: execution };
+      await apiPost(`/api/evaluations/${encodeURIComponent(id)}/stop`, {});
+      if (currentSource()?.batch.id === runId && App.evaluationSelectedId === id && selectionRevision === revision) {
+        await loadSelectedEvaluation({ force: true });
       }
       await refreshEvaluations({ quiet: true });
     } catch (error) {
-      if (currentSource()?.batch.id === runId) errorMessage = error.message;
+      if (currentSource()?.batch.id === runId && App.evaluationSelectedId === id && selectionRevision === revision) actionErrorMessage = error.message;
     } finally {
       busy = false;
       renderOutput();
