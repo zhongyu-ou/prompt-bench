@@ -40,7 +40,6 @@
   .toolbar-actions { width: 100%; min-width: 0; }
   .draft-name { width: 100%; }
   .form-grid { grid-template-columns: 1fr; }
-  .editor-tools { width: 100%; justify-content: flex-end; padding-bottom: 4px; flex-wrap: wrap; min-width: 0; }
   .mismatch-btn { max-width: 100%; }
   .run-btn { flex: 1 1 auto; }
   .output-head { padding: 0 8px; }

@@ -10,7 +10,7 @@ import { openMetricEditorById } from './metrics.js';
 import { metricTargetLabel } from './model.js';
 import { getOutputDetail, renderEvaluationControls } from './evaluations.js';
 
-const previewTabs = [['output', '输出'], ['request', '请求'], ['response', '响应'], ['details', '详情'], ['eval', '评估']];
+const previewTabs = [['output', '输出'], ['eval', '评估'], ['request', '请求'], ['response', '响应'], ['details', '详情']];
 const previewHtml = new WeakMap();
 const rowHtml = new WeakMap();
 const browserDetail = new WeakMap();

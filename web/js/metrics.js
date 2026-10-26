@@ -4,7 +4,7 @@ import { $, clone, esc, stableStringify } from './utils.js';
 import { toast } from './feedback.js';
 import { setView } from './navigation.js';
 import { saveState } from './persistence.js';
-import { computeRunPlan, refreshRunPlan } from './run-plan.js';
+import { refreshRunPlan } from './run-plan.js';
 import { updateDirtyUI } from './shell-view.js';
 import {
   credentialMeta, markEdit, metricById, metricEditorDirty, metricProviderIssue,
@@ -412,17 +412,6 @@ function renderMetricSelection() {
     const dangling = refs.filter((ref) => !metricById(ref.metric_id));
     if (dangling.length) {
       host.innerHTML += dangling.map((ref) => `<div class="metric-issue error" role="alert">所选指标「${esc(ref.metric_id)}」已不存在。<button type="button" class="link-btn" data-metric-unpick="${esc(ref.metric_id)}">移除选择</button></div>`).join('');
-    }
-  }
-  const plan = computeRunPlan();
-  const budget = $('metric-budget');
-  if (budget) {
-    if (!refs.length) {
-      budget.textContent = '';
-    } else if (plan.modelCount) {
-      budget.textContent = `已选 ${refs.length} 项指标 · 生成后最多 ${plan.maxModelCalls} 次模型评估调用`;
-    } else {
-      budget.textContent = `已选 ${refs.length} 项代码指标 · 无模型评估调用`;
     }
   }
 }

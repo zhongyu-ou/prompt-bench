@@ -50,7 +50,6 @@ function validateMetricSelection() {
   const warnings = [];
   const selected = [];
   const seen = new Set();
-  let modelCount = 0;
   for (const ref of selectedMetricRefs()) {
     const metric = metricById(ref.metric_id);
     const label = metric ? (metric.name || metric.id) : ref.metric_id;
@@ -71,14 +70,13 @@ function validateMetricSelection() {
       errors.push(`指标「${label}」选择整段输出时不能带 JSON Pointer。`);
     }
     if (metric.kind === 'model') {
-      modelCount += 1;
       const issue = metricProviderIssue(metric);
       if (issue.error) errors.push(`模型指标「${label}」：${issue.error}。`);
       if (issue.warning) warnings.push(`模型指标「${label}」：${issue.warning}。`);
     }
     selected.push({ ref, metric });
   }
-  return { errors, warnings, selected, modelCount };
+  return { errors, warnings, selected };
 }
 
 function computeRunPlan() {
@@ -140,11 +138,10 @@ function computeRunPlan() {
   warnings.push(...metricPlan.warnings);
   const total = cases.length * runsPerCase;
   if (total > 100000) errors.push(`总请求数 ${total} 超过单批次上限 100000。`);
-  const maxModelCalls = total * metricPlan.modelCount;
   for (const err of validateSettings(App.state.settings)) errors.push(err);
   for (const err of App.settingsError) if (!errors.includes(err)) errors.push(err);
   if (hasKnownActiveBatch()) warnings.push('已有生成或独立评估正在执行；同一时间只允许一个执行，启动与复跑按钮已禁用。');
-  return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency, metrics: metricPlan.selected, modelCount: metricPlan.modelCount, maxModelCalls };
+  return { cases, enabledGroups, runsPerCase, total, errors, warnings, concurrency: App.state.settings.concurrency, metrics: metricPlan.selected };
 }
 
 function hasKnownActiveBatch() {

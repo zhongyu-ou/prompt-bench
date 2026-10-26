@@ -9,7 +9,7 @@ import { renderHistoryList } from './history-view.js';
 import { bindOutputEvents, renderOutput } from './output.js';
 import { bindSelectionEvents, renderSelectionPanel, scheduleSelectionPreview, scheduleStagedPreview } from './selection.js';
 import { bindCaseEditorEvents, renderCaseEditor } from './case-editor.js';
-import { bindIOEvents, openIO, renderIO } from './case-io.js';
+import { bindIOEvents, renderIO } from './case-io.js';
 import { bindGroupEvents, renderGroupEditor } from './groups.js';
 import { refreshRunPlan } from './run-plan.js';
 import { App } from './state.js';
@@ -180,7 +180,6 @@ function bindStaticEvents() {
 
   $('save-btn').addEventListener('click', () => saveState());
   $('run-btn').addEventListener('click', startRun);
-  $('workbench-import-btn').addEventListener('click', () => openIO());
   $('workbench-cases-btn').addEventListener('click', () => {
     setView('cases');
     $('range-panel').scrollIntoView({ block: 'start' });
@@ -206,10 +205,6 @@ function bindStaticEvents() {
     if (typeof App.bannerAction === 'function') App.bannerAction();
   });
 
-  document.addEventListener('click', (e) => {
-    const details = $('insert-var-menu');
-    if (details && details.open && !details.contains(e.target)) details.open = false;
-  });
 
   document.addEventListener('input', () => markEdit(), true);
   document.addEventListener('change', () => markEdit(), true);
@@ -222,12 +217,6 @@ function bindStaticEvents() {
     }
   });
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const menu = $('insert-var-menu');
-      if (menu && menu.open) menu.open = false;
-    }
-  });
   bindTemplateEvents();
   bindGroupEvents();
   bindOutputEvents();

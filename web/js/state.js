@@ -84,7 +84,7 @@ const App = {
     exportIncludeMemberships: true
   },
   groupEditor: null,
-  templatePreview: { mode: 'edit', groupId: null, generation: 0, key: '', data: null, error: '', busy: false },
+  templatePreview: { mode: 'edit', generation: 0, key: '', data: null, error: '', busy: false },
   metricEditor: null,
   metricSearch: '',
   evaluations: [],

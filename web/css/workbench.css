@@ -4,19 +4,28 @@
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
   gap: 22px;
-  align-items: start;
+  align-items: stretch;
 }
 .wb-main, .wb-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wb-main { min-height: 0; }
+.editor-card { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.editor-card .compact-head, .editor-card .message-header { flex-shrink: 0; }
 .wb-side { position: static; }
 .output-card { margin-top: 14px; }
-.editor-card .code-editor { min-height: 340px; height: min(50vh, 480px); }
+.editor-card #message-content {
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .editor-card .compact-head { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 12px; }
 .editor-card .title-line { flex-wrap: nowrap; gap: 6px; overflow-x: auto; }
  .editor-card .title-line .btn { flex-shrink: 0; }
 .editor-card .card-title { white-space: nowrap; font-size: 12.5px; }
 .editor-card #template-select { flex: 1; min-width: 100px; }
 .editor-card .message-tab { min-height: 26px; }
-.editor-tools { padding: 0 12px 4px; }
 .scope-summary { padding: 12px 14px; color: var(--text-2); overflow-wrap: anywhere; }
 .group-template { font-size: 11px; color: var(--text-2); }
 .group-cards { display: flex; flex-direction: column; }

@@ -128,22 +128,22 @@
                 <button type="button" class="btn tiny danger-text" id="del-template-btn">删除</button>
               </div>
             </div>
-            <div class="editor-tools">
-              <div class="mode-seg" role="group" aria-label="模板视图">
-                <button type="button" class="btn tiny mode-btn" id="template-mode-edit" aria-pressed="true">编辑模板</button>
-                <button type="button" class="btn tiny mode-btn" id="template-mode-preview" aria-pressed="false">请求预览</button>
-              </div>
-              <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
-              <details class="menu" id="insert-var-menu">
-                <summary class="btn tiny">插入变量</summary>
-                <div class="menu-panel" id="insert-var-list"></div>
-              </details>
-            </div>
+            <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
             <div class="editor-error" id="editor-render-error" role="alert" hidden></div>
-            <div id="template-edit-panel">
-            <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
-            <div class="message-editor">
-              <textarea id="message-content" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="模板消息内容"></textarea>
+            <div class="message-header">
+              <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
+              <div class="template-mode-toggle" role="group" aria-label="模板视图">
+                <button type="button" class="template-mode-btn" id="template-mode-preview" aria-label="预览 prompt" title="预览组装后的 prompt" aria-pressed="false" aria-controls="template-preview-panel">
+                  <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 10s2.8-5.5 8-5.5 8 5.5 8 5.5-2.8 5.5-8 5.5S2 10 2 10Z"/><circle cx="10" cy="10" r="2.5"/></svg>
+                </button>
+                <button type="button" class="template-mode-btn" id="template-mode-edit" aria-label="编辑模板" title="编辑模板" aria-pressed="true" aria-controls="template-edit-panel">
+                  <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 5-5 5 5 5m6-10 5 5-5 5"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="template-message-body" id="template-message-body">
+            <div class="message-editor" id="template-edit-panel">
+              <textarea id="message-content" class="code-editor" wrap="soft" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="模板消息内容"></textarea>
               <div class="editor-status">
                 <label class="inline-field">
                   <span>角色</span>
@@ -154,16 +154,13 @@
                 <span class="muted small" id="message-lineinfo">行 1，列 1</span>
               </div>
             </div>
-            </div>
             <div id="template-preview-panel" class="template-preview-panel" hidden>
-              <div class="template-preview-toolbar">
-                <label class="inline-field"><span>预览配置</span><select class="input select compact" id="template-preview-group"></select></label>
-                <button type="button" class="btn tiny" id="template-preview-run">更新预览</button>
-                <button type="button" class="btn tiny" id="template-preview-copy">复制请求</button>
+              <div class="template-preview-feedback">
+                <p class="muted small" id="template-preview-status" aria-live="polite" hidden></p>
+                <button type="button" class="btn tiny" id="template-preview-run" hidden>保存并预览</button>
               </div>
-              <p class="muted small" id="template-preview-status" aria-live="polite"></p>
-              <div id="template-preview-messages"></div>
-              <details id="template-preview-raw-details"><summary>完整请求</summary><div id="template-preview-raw"></div></details>
+              <pre class="template-prompt-content" id="template-preview-messages"></pre>
+            </div>
             </div>
           </section>
 
@@ -172,7 +169,6 @@
           <section class="card workbench-scope">
             <div class="card-head compact-head">
               <h2 class="card-title">运行数据</h2>
-              <button type="button" class="btn tiny" id="workbench-import-btn">导入数据</button>
               <button type="button" class="btn tiny" id="workbench-cases-btn">在 Case 库调整</button>
             </div>
             <div class="scope-summary" id="workbench-scope-summary"></div>
@@ -190,7 +186,6 @@
                 <button type="button" class="btn tiny" id="manage-metrics-btn">管理指标</button>
               </div>
               <div id="metric-pick-list" class="metric-pick-list"></div>
-              <div class="metric-budget" id="metric-budget" aria-live="polite"></div>
             </section>
           </section>
         </aside>

@@ -15,6 +15,7 @@
 }
 @media (max-width: 820px) {
   .wb-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-card #message-content { flex: none; min-height: 340px; height: min(50vh, 480px); }
   .app-header { height: 56px; padding: 0 14px; }
   .app-shell { display: block; min-height: calc(100vh - 56px); }
   .sidebar {
