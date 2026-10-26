@@ -106,9 +106,6 @@ func (s *Store) state() (State, error) {
 	if st.Draft.Metrics == nil {
 		st.Draft.Metrics = []MetricSelection{}
 	}
-	if st.InputContracts == nil {
-		st.InputContracts = []InputContract{}
-	}
 	return st, err
 }
 func (s *Store) saveState(st State, updates map[string]CredentialUpdate) (State, error) {

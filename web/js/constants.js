@@ -22,8 +22,6 @@ const ICON_EDIT = '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><pat
 
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 5.5h11M8 5.5V4h4v1.5M6 5.5l.7 10h6.6l.7-10M8.4 8v5M11.6 8v5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
-const KNOWN_VARIABLES = ['CurrentText', 'PriorText', 'SourceLanguage', 'ReplacementMap'];
-
 const PROHIBITED_VARIABLES = ['TargetLanguageNameMap'];
 
 const LANGUAGE_NAMES = { en: 'English', jp: 'Japanese', ja: 'Japanese', es: 'Spanish', zh: 'Chinese', 'zh-CN': 'Chinese (Simplified)', ko: 'Korean', fr: 'French', de: 'German' };
@@ -42,4 +40,4 @@ const EVALUATION_STATUS = {
   interrupted: '结果未知'
 };
 
-export { ATTEMPT_STATUS, BATCH_STATUS, EVALUATION_STATUS, ICON_EDIT, ICON_TRASH, KNOWN_VARIABLES, LANGUAGE_NAMES, METRIC_KIND_LABELS, METRIC_RETURN_LABELS, PROHIBITED_VARIABLES };
+export { ATTEMPT_STATUS, BATCH_STATUS, EVALUATION_STATUS, ICON_EDIT, ICON_TRASH, LANGUAGE_NAMES, METRIC_KIND_LABELS, METRIC_RETURN_LABELS, PROHIBITED_VARIABLES };

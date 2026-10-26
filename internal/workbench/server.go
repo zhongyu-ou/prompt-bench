@@ -85,7 +85,7 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.frontend.ServeHTTP(w, r)
 		return
 	}
-	if a.evaluationAPI(w, r) || a.inputContractAPI(w, r) || a.metricAPI(w, r) || a.packageAPI(w, r) || a.caseAPI(w, r) {
+	if a.evaluationAPI(w, r) || a.templateInputsAPI(w, r) || a.metricAPI(w, r) || a.packageAPI(w, r) || a.caseAPI(w, r) {
 		return
 	}
 	switch r.URL.Path {
@@ -160,9 +160,6 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			input.Collections = current.Collections
 			if _, present := fields["metrics"]; !present {
 				input.Metrics = current.Metrics
-			}
-			if _, present := fields["input_contracts"]; !present {
-				input.InputContracts = current.InputContracts
 			}
 			var draftFields map[string]json.RawMessage
 			json.Unmarshal(fields["draft"], &draftFields)

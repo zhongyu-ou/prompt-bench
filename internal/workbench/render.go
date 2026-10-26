@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"text/template"
 )
 
 const maxRender = 1 << 20
@@ -83,31 +82,13 @@ func validateState(s State) error {
 	if _, err := resolveSelection(s, Selection{CaseIDs: s.Draft.CaseIDs, CollectionIDs: s.Draft.CollectionIDs, ExcludedCaseIDs: s.Draft.ExcludedCaseIDs}); err != nil {
 		return err
 	}
-	contracts := map[string]bool{}
-	for _, c := range s.InputContracts {
-		if contracts[c.ID] {
-			return fmt.Errorf("input contract ids must be unique")
-		}
-		contracts[c.ID] = true
-		if err := validateContract(c); err != nil {
-			return err
-		}
-	}
 	for _, t := range s.Templates {
 		if !validID(t.ID) || templates[t.ID] || strings.TrimSpace(t.Name) == "" || len(t.Messages) == 0 {
 			return fmt.Errorf("templates require unique id, name and messages")
 		}
 		templates[t.ID] = true
-		if t.InputContractID != "" && !contracts[t.InputContractID] {
-			return fmt.Errorf("template input contract not found")
-		}
-		for _, m := range t.Messages {
-			if err := validMessage(m); err != nil {
-				return err
-			}
-			if _, err := template.New("message").Parse(m.Content); err != nil {
-				return fmt.Errorf("template %s: %w", t.Name, err)
-			}
+		if _, err := compilePrompt(t); err != nil {
+			return err
 		}
 	}
 	for _, p := range s.Providers {
@@ -213,33 +194,32 @@ func renderRequest(s State, caseID string, g Group) (FrozenRequest, error) {
 	if err := validateVariables(c.Variables); err != nil {
 		return f, err
 	}
-	if err := validateCaseContract(s, *t, *c); err != nil {
+	compiled, err := compilePrompt(*t)
+	if err != nil {
 		return f, err
 	}
 	resolution := resolveLanguage(*c, g)
-	variables := make(map[string]any, len(c.Variables)+1)
+	variables := make(map[string]any, len(c.Variables)+len(compiled.inputs.Keys)+1)
 	for k, v := range c.Variables {
 		variables[k] = v
+	}
+	for _, key := range compiled.inputs.Keys {
+		if _, present := variables[key]; !present {
+			variables[key] = ""
+		}
 	}
 	targetMap := make(map[string]string, len(resolution.Targets))
 	for _, target := range resolution.Targets {
 		targetMap[target.Key] = target.Name
 	}
 	variables["TargetLanguageNameMap"] = targetMap
-	messages := []Message{}
-	for _, m := range t.Messages {
-		if err = validMessage(m); err != nil {
-			return f, err
-		}
-		tmpl, e := template.New("message").Parse(m.Content)
-		if e != nil {
-			return f, e
-		}
+	messages := make([]Message, len(t.Messages))
+	for i, m := range t.Messages {
 		var out limitedBuffer
-		if e = tmpl.Execute(&out, variables); e != nil {
+		if e := compiled.messages[i].Execute(&out, variables); e != nil {
 			return f, fmt.Errorf("render case %s: %w", c.ID, e)
 		}
-		messages = append(messages, Message{m.Role, out.String()})
+		messages[i] = Message{m.Role, out.String()}
 	}
 	prepared, err := adapter.Prepare(*p, g.Model, messages, g.Parameters)
 	if err != nil {
@@ -258,7 +238,7 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	in.CaseIDs = ids
-	snap := Snapshot{Cases: []SnapshotCase{}, Templates: []Template{}, Providers: []Provider{}, Groups: []Group{}, CaseIDs: ids, Selection: &selection, TimeoutSeconds: s.Settings.TimeoutSeconds, Requests: []FrozenRequest{}}
+	snap := Snapshot{Cases: []SnapshotCase{}, Templates: []SnapshotTemplate{}, Providers: []Provider{}, Groups: []Group{}, CaseIDs: ids, Selection: &selection, TimeoutSeconds: s.Settings.TimeoutSeconds, Requests: []FrozenRequest{}}
 	frozenCollections := map[string]bool{}
 	for _, id := range selection.CollectionIDs {
 		if frozenCollections[id] {
@@ -322,22 +302,7 @@ func freeze(s State, in RunInput) (Snapshot, error) {
 	}
 	for _, t := range s.Templates {
 		if templates[t.ID] {
-			snap.Templates = append(snap.Templates, t)
-			if t.InputContractID != "" {
-				found := false
-				for _, existing := range snap.InputContracts {
-					if existing.ID == t.InputContractID {
-						found = true
-					}
-				}
-				if !found {
-					for _, c := range s.InputContracts {
-						if c.ID == t.InputContractID {
-							snap.InputContracts = append(snap.InputContracts, c)
-						}
-					}
-				}
-			}
+			snap.Templates = append(snap.Templates, SnapshotTemplate{Template: t})
 		}
 	}
 	for _, p := range s.Providers {

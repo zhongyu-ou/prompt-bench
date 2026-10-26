@@ -1,6 +1,6 @@
 # ADR 0002: Edit shared input contracts in place and freeze history
 
-Status: adopted by the current implementation. This record consolidates the existing design; it does not assign a retrospective approval date.
+Status: superseded by [ADR 0004](0004-template-led-inputs.md). The historical snapshot-preservation requirement remains in force.
 
 ## Context
 
@@ -16,4 +16,4 @@ When incompatible input formats must coexist, copy the contract rather than addi
 
 A deliberate shared edit updates future uses together, so stale impact responses cannot confirm a newer draft. Existing history remains intelligible without keeping mutable historical contract versions in current editable state. Coexisting incompatible formats require separate contracts rather than silent migration of their inputs.
 
-The current ownership is in [architecture](../architecture/overview.md#module-responsibilities); exact validation and mutation rules are in the [client contract](../architecture/client-contract.md#shared-input-contracts).
+Current ownership is in [architecture](../architecture/overview.md#module-responsibilities); current template-input and historical read behavior are in the [client contract](../architecture/client-contract.md#template-inputs).

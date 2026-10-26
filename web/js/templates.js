@@ -1,11 +1,11 @@
 import { $, clone, esc, uniqueId } from './utils.js';
-import { activeCase, activeGroup, activeMessage, activeTemplate, ensureSelections, groupById, markEdit, templateById } from './model.js';
+import { activeGroup, activeMessage, activeTemplate, caseById, ensureSelections, groupById, markEdit, selectedCaseIds, templateById } from './model.js';
 import { toast } from './feedback.js';
 import { App } from './state.js';
 import { renderGroupCards, renderModelSuggestions } from './workbench-view.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
-import { renderContractBinding } from './contracts.js';
+import { renderTemplatePreview } from './template-preview.js';
 
 let renamingTemplateId = null;
 function renderTemplateMismatch() {
@@ -59,7 +59,6 @@ function renderTemplateOptions() {
 
 function renderTemplateEditor() {
   if (!App.state) return;
-  renderContractBinding();
   const tpl = activeTemplate();
   const msg = activeMessage();
   const ta = $('message-content');
@@ -84,6 +83,7 @@ function renderTemplateEditor() {
     $('insert-var-menu').hidden = true;
     updateLineInfo(ta, $('message-lineinfo'));
     renderTemplateMismatch();
+    renderTemplatePreview();
     return;
   }
 
@@ -114,23 +114,30 @@ function renderTemplateEditor() {
   }
   updateLineInfo(ta, $('message-lineinfo'));
   renderTemplateMismatch();
+  renderTemplatePreview();
 }
 
 
 function renderInsertVarList() {
   const list = $('insert-var-list');
   if (!list) return;
-  const c = activeCase();
+  const c = caseById(selectedCaseIds()[0]);
   if (!c) {
-    list.innerHTML = '<div class="menu-empty">尚未选择 case</div>';
+    list.innerHTML = '<div class="menu-empty">尚未选择运行 Case</div>';
     return;
   }
-  const keys = Object.keys(c.variables || {}).filter((k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)).sort();
+  const keys = Object.keys(c.variables || {}).sort();
   if (!keys.length) {
-    list.innerHTML = '<div class="menu-empty">当前 case 没有可用变量，请在 Case 库中添加。</div>';
+    list.innerHTML = '<div class="menu-empty">首条运行 Case 没有可用变量，请在 Case 库中添加。</div>';
     return;
   }
-  list.innerHTML = keys.map((k) => `<button type="button" data-var-insert="${esc(k)}">{{ .${esc(k)} }}</button>`).join('');
+  list.innerHTML = keys.map((key) => `<button type="button" data-var-insert="${esc(key)}">${esc(variableToken(key))}</button>`).join('');
+}
+
+function variableToken(key) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+    ? `{{ .${key} }}`
+    : `{{index . ${JSON.stringify(key)}}}`;
 }
 
 function insertVariableToken(key) {
@@ -138,7 +145,7 @@ function insertVariableToken(key) {
   const msg = activeMessage();
   const ta = $('message-content');
   if (!tpl || !msg || !ta) return;
-  const token = `{{ .${key} }}`;
+  const token = variableToken(key);
   const start = ta.selectionStart ?? ta.value.length;
   const end = ta.selectionEnd ?? start;
   const next = ta.value.slice(0, start) + token + ta.value.slice(end);
@@ -151,6 +158,7 @@ function insertVariableToken(key) {
   ta.setSelectionRange(pos, pos);
   updateLineInfo(ta, $('message-lineinfo'));
   refreshRunPlan();
+  renderTemplatePreview();
 }
 
 function handleMessageInput() {
@@ -160,6 +168,7 @@ function handleMessageInput() {
   msg.content = ta.value;
   updateLineInfo(ta, $('message-lineinfo'));
   refreshRunPlan();
+  renderTemplatePreview();
 }
 
 function updateLineInfo(textarea, label) {

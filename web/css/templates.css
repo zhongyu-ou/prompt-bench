@@ -17,7 +17,7 @@
   font-weight: 650;
   border-bottom-color: var(--accent);
 }
-.editor-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.editor-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
 .mismatch-btn {
   max-width: 310px;
   overflow: hidden;
@@ -140,3 +140,14 @@
 }
 .inline-field { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .inline-field .select { min-width: 70px; }
+
+#template-edit-panel { min-width: 0; }
+.template-preview-panel { padding: 12px 14px; min-width: 0; }
+.template-preview-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.template-preview-toolbar .inline-field { min-width: 0; flex: 1; }
+.template-preview-toolbar select { min-width: 0; max-width: 100%; }
+.template-preview-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono-font); font-size: 12px; line-height: 1.72; }
+.template-preview-panel details { margin-top: 12px; }
+.template-preview-message { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.template-preview-message h3 { margin: 0; font-size: 11px; color: var(--muted); font-weight: 600; }
+.template-preview-message pre { margin: 8px 0; }

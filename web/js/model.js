@@ -282,7 +282,6 @@ function normalizeState(input) {
   s.cases = Array.isArray(s.cases) ? s.cases : [];
   s.collections = Array.isArray(s.collections) ? s.collections : [];
   s.templates = Array.isArray(s.templates) ? s.templates : [];
-  s.input_contracts = Array.isArray(s.input_contracts) ? s.input_contracts : [];
   s.providers = Array.isArray(s.providers) ? s.providers : [];
   s.metrics = Array.isArray(s.metrics) ? s.metrics.map(normalizeMetric).filter((m) => m.id) : [];
   s.settings = s.settings && typeof s.settings === 'object' ? s.settings : {};
@@ -379,8 +378,7 @@ function caseEditorDirty() {
   if (!ed) return false;
   return ed.jsonText !== ed.baseline.raw
     || ed.editedFields.size > 0
-    || ed.editedExtras.size > 0
-    || ed.removedExtras.size > 0
+    || ed.removedFields.size > 0
     || !setEqual(ed.collectionIds, ed.baselineCollections);
 }
 

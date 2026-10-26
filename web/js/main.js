@@ -9,7 +9,7 @@ import { renderHistoryList } from './history-view.js';
 import { bindOutputEvents, renderOutput } from './output.js';
 import { bindSelectionEvents, renderSelectionPanel, scheduleSelectionPreview, scheduleStagedPreview } from './selection.js';
 import { bindCaseEditorEvents, renderCaseEditor } from './case-editor.js';
-import { bindIOEvents, renderIO } from './case-io.js';
+import { bindIOEvents, openIO, renderIO } from './case-io.js';
 import { bindGroupEvents, renderGroupEditor } from './groups.js';
 import { refreshRunPlan } from './run-plan.js';
 import { App } from './state.js';
@@ -21,7 +21,7 @@ import { $ } from './utils.js';
 import { bindHistoryEvents } from './history.js';
 import { configureMutations } from './mutations.js';
 import { bindMetricEvents, renderMetricSelection, renderMetricsView } from './metrics.js';
-import { bindContractEvents, contractEditorDirty } from './contracts.js';
+import { bindTemplatePreviewEvents, renderTemplatePreview } from './template-preview.js';
 import { bindEvaluationEvents, refreshEvaluations } from './evaluations.js';
 
 function renderAll() {
@@ -30,6 +30,7 @@ function renderAll() {
   renderCollectionNav();
   renderTemplateOptions();
   renderTemplateEditor();
+  renderTemplatePreview();
   renderGroupCards();
   renderModelSuggestions();
   renderProviders();
@@ -80,9 +81,11 @@ async function init() {
 function renderView(view) {
   renderCollectionNav();
   renderShell();
+  renderTemplatePreview();
   if (view === 'workbench') {
     renderTemplateOptions();
     renderTemplateEditor();
+    renderTemplatePreview();
     renderGroupCards();
     refreshRunPlan();
   } else if (view === 'cases') {
@@ -111,6 +114,8 @@ function renderView(view) {
 function renderSavedState() {
   renderTemplateOptions();
   renderTemplateEditor();
+  renderTemplatePreview();
+  renderIO();
   renderGroupCards();
   renderSettings();
   renderMetricSelection();
@@ -120,6 +125,8 @@ function renderSavedState() {
 function renderCredentialState() {
   renderProviders();
   renderSelectionPanel();
+  renderTemplatePreview();
+  renderIO();
   renderMetricSelection();
   renderMetricsView();
 }
@@ -132,6 +139,7 @@ async function renderReloadedState() {
 function renderMutatedState() {
   renderCollectionNav();
   renderGroupCards();
+  renderTemplatePreview();
   renderLibrary();
   if (App.activeView === 'case-io') renderIO();
   if (App.activeView === 'group-editor') renderGroupEditor();
@@ -172,6 +180,7 @@ function bindStaticEvents() {
 
   $('save-btn').addEventListener('click', () => saveState());
   $('run-btn').addEventListener('click', startRun);
+  $('workbench-import-btn').addEventListener('click', () => openIO());
   $('workbench-cases-btn').addEventListener('click', () => {
     setView('cases');
     $('range-panel').scrollIntoView({ block: 'start' });
@@ -206,7 +215,7 @@ function bindStaticEvents() {
   document.addEventListener('change', () => markEdit(), true);
 
   window.addEventListener('beforeunload', (e) => {
-    const editorDirty = caseEditorDirty() || groupEditorDirty() || metricEditorDirty() || contractEditorDirty();
+    const editorDirty = caseEditorDirty() || groupEditorDirty() || metricEditorDirty();
     if (hasUnsavedWork() || editorDirty) {
       e.preventDefault();
       e.returnValue = '';
@@ -231,7 +240,7 @@ function bindStaticEvents() {
   bindIOEvents();
   bindRunEvents();
   bindMetricEvents();
-  bindContractEvents();
+  bindTemplatePreviewEvents();
   bindEvaluationEvents();
 }
 

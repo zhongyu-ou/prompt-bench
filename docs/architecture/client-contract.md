@@ -45,11 +45,11 @@ brand/model name.
 
 `GET /api/state` example (credential availability is computed from actual backend state):
 ```json
-{"version":1,"cases":[{"id":"9cbd7a175f2b4204a153905f4b817d49","variables":{"CurrentText":"Hello","SourceLanguage":"en"},"variables_json":"{\"CurrentText\":\"Hello\",\"SourceLanguage\":\"en\"}"}],"collections":[],"templates":[{"id":"asr","name":"ASR","messages":[{"role":"user","content":"{{.CurrentText}}"}]}],"input_contracts":[],"providers":[{"id":"luna","name":"Luna","protocol":"openai-chat-completions","base_url":"https://example.openai.azure.com/openai/v1","api_key_env":"AZURE_OPENAI_API_KEY","credential_ref":"cred_example"}],"metrics":[],"settings":{"default_runs":20,"concurrency":20,"timeout_seconds":120},"draft":{"name":"Comparison","case_ids":["9cbd7a175f2b4204a153905f4b817d49"],"collection_ids":[],"excluded_case_ids":[],"groups":[{"id":"luna","name":"Luna","enabled":true,"template_id":"asr","provider_id":"luna","model":"example-model","parameters":{"reasoning_effort":"none"},"runs":20,"language_routes":[]}],"metrics":[]},"credentials":{"luna":{"manual_set":false,"env_available":false,"source":"missing","available":false,"requires_auth":true}}}
+{"version":1,"cases":[{"id":"9cbd7a175f2b4204a153905f4b817d49","variables":{"CurrentText":"Hello","SourceLanguage":"en"},"variables_json":"{\"CurrentText\":\"Hello\",\"SourceLanguage\":\"en\"}"}],"collections":[],"templates":[{"id":"asr","name":"ASR","messages":[{"role":"user","content":"{{.CurrentText}}"}]}],"providers":[{"id":"luna","name":"Luna","protocol":"openai-chat-completions","base_url":"https://example.openai.azure.com/openai/v1","api_key_env":"AZURE_OPENAI_API_KEY","credential_ref":"cred_example"}],"metrics":[],"settings":{"default_runs":20,"concurrency":20,"timeout_seconds":120},"draft":{"name":"Comparison","case_ids":["9cbd7a175f2b4204a153905f4b817d49"],"collection_ids":[],"excluded_case_ids":[],"groups":[{"id":"luna","name":"Luna","enabled":true,"template_id":"asr","provider_id":"luna","model":"example-model","parameters":{"reasoning_effort":"none"},"runs":20,"language_routes":[]}],"metrics":[]},"credentials":{"luna":{"manual_set":false,"env_available":false,"source":"missing","available":false,"requires_auth":true}}}
 ```
 `credentials` is separate read-only metadata keyed by provider ID; it is not part of persisted editable state. `source`: `manual`, `env`, `anonymous`, `missing`, `invalid`. `manual_set` indicates stored override presence, not its value. `env_available` means a currently valid actual env value, not merely a configured name. `available` indicates a usable resolved credential or explicit anonymous endpoint. `requires_auth` is true when a manual override exists or an env name is configured.
 
-`PUT /api/state` accepts optimistic `version` and editable `templates,input_contracts,providers,metrics,settings,draft`, plus optional write-only:
+`PUT /api/state` accepts optimistic `version` and editable `templates,providers,metrics,settings,draft`, plus optional write-only:
 ```json
 {"credential_updates":{"luna":{"action":"set","key":"new private value"},"other":{"action":"clear"}}}
 ```
@@ -126,38 +126,36 @@ lossless editing, never a second persisted input. Collection is
 The API returns the complete Case resource list; it does not paginate Cases.
 
 
-### Shared input contracts
+### Template inputs
 
-`GET /api/state` includes `input_contracts:[]`; generic versioned `PUT /api/state`
-owns this list alongside templates/providers/metrics/settings/draft. Omission
-preserves existing contracts; explicit `[]` deletes contracts only after all
-template references are removed in the same save. Templates optionally reference
-`input_contract_id`. Existing unbound templates keep their old rendering behavior;
-there is no forced migration or implicit contract assignment.
+Template is `{id,name,messages:[{role,content}]}`. Its Go body owns input discovery;
+there is no editable input-contract list or input-contract binding.
+
+`POST /api/templates/inputs` accepts `{state_version,template_id}` for a saved
+template and returns:
 
 ```json
-{"id":"prepared","name":"Prepared translation variables","description":"Context has already been prepared upstream","fields":{"CurrentText":{"type":"string","required":true,"nullable":false,"description":"Current source sentence"},"Context":{"type":"object","required":false,"nullable":true,"description":"Prepared context","fields":{"items":{"type":"array","required":true,"nullable":false,"description":"Ordered context entries","items":{"type":"string","required":false,"nullable":false,"description":"One entry"}}}}}}
+{"state_version":7,"template_id":"t","keys":["CurrentText","PriorText"],"dynamic":false,"example_json":"{\n  \"CurrentText\": \"\",\n  \"PriorText\": \"\"\n}"}
 ```
 
-Field types are `string,number,integer,boolean,object,array`. Objects use `fields`;
-arrays require one recursive `items` definition. Nesting is limited to 32.
-Required presence and null permission are separate. Types are checked without
-coercion, filling defaults or changing a Case; unknown extra object fields are
-allowed at every level. Field semantics are editable descriptions, not processing
-instructions. Root `TargetLanguageNameMap` cannot be declared: it remains runtime
-configuration injected separately from Case input.
+`keys` is always an array, sorted and deduplicated. It contains statically
+discoverable root Case keys, not types or requiredness. Nested fields and range
+elements do not become root keys; named-template definitions are message-local.
+`TargetLanguageNameMap` is excluded because execution injects it. `dynamic:true`
+means references cannot be completely enumerated; known keys are still returned.
+`example_json` is an empty-string field skeleton, not a guarantee of successful
+rendering with complex input. A static template without fields returns `[]` and
+`"{}"`. No Provider, Group, Case, credentials or outbound call is needed.
 
-`POST /api/input-contracts/impact` accepts `{state_version,contract:<definition>}`
-without saving. Response `{state_version,template_ids:[],cases:[{case_id,before_errors:[],after_errors:[]}]}`
-lists saved referencing templates and every current Case's compatibility before
-and after the proposed definition. Each error is `{case_id,path,message}`, with
-JSON Pointer field paths including array indices. Stale version is 409.
-Preview/start reject incompatible input before any generation call, with the
-concrete Case ID and field paths in `error`. Saving a shared contract is allowed
-even if some Cases are incompatible; it affects future uses of all referencing
-templates. New generation snapshots freeze the referenced definitions in
-`snapshot.input_contracts`; editing a contract never changes historical blobs or
-frozen replay.
+Stale version returns 409 before template lookup/compilation; missing ID 400,
+unknown ID 404, invalid syntax 400, wrong method 405 and state-read failure 500.
+This endpoint does not modify state.
+
+Historical snapshot `input_contracts` and template `input_contract_id` remain
+readable on GET/export and frozen replay, but no longer validate or execute.
+Current state reads omit those obsolete fields, and its next successful save
+drops them without rewriting history. Strict state writes reject them with 400;
+old browser pages must refresh. `/api/input-contracts/impact` is no longer routed.
 
 ### Evaluation metrics
 
@@ -202,9 +200,9 @@ automatic model discovery or paid call occurs when saving configuration.
 
 ### Language routes and selection
 
-Cases are prepared template variables, not exclusive members of a template or
-contract. A template's optional `input_contract_id` controls compatibility at
-preview/start; validation does not fill import defaults or modify a Case.
+Cases are prepared template variables, not exclusive members of a template.
+Selection only establishes the input scope; each Group chooses its template.
+Rendering follows the [request-preview rules](#request-preview) without changing Cases.
 
 Group has
 `language_routes:[{source_language:"zh-CN",targets:[{key:"en",name:"English"}]}]`.
@@ -239,12 +237,21 @@ project unsaved edits without saving or modifying the original Case.
 
 `POST /api/preview` body `{ "state_version":1, "case_id":"9cbd7a175f2b4204a153905f4b817d49", "group":<full group> }` resolves one saved state and returns `{ "protocol":"openai-chat-completions", "method":"POST", "headers":{"Content-Type":"application/json"}, "request":<actual JSON body>, "raw_request":"exact serialized body", "endpoint":".../chat/completions", "prompt_hash":"sha256" }`.
 
-Missing/stale version409 before render. No credentials required or outbound call. Same Go `text/template` renderer as execution: standard builtins only, default missing-key behavior, no file/process/network functions,1MiB message-output bound. Hash covers exact serialized body. Roles/messages render generically before protocol preparation.
+Missing/stale version returns 409 before render. No credentials required or outbound call. Same Go `text/template` compiler/renderer as execution: standard builtins only, no file/process/network functions, 1 MiB message-output bound. Hash covers exact serialized body. Roles/messages render generically before protocol preparation.
 
 Preview also returns
 `language_resolution:{source_language,targets:[{key,name}],used_default}`. The
 effective `TargetLanguageNameMap` is injected into a copy of variables for
 rendering, never into Case state.
+
+For each statically discoverable root input key absent from the Case, rendering
+adds `""` only to the top-level working copy. Existing null, zero, false, strings,
+arrays, objects and numeric literals remain unchanged. For example absent
+`PriorText` prints blank and is false in `if`; absent `History` becomes a string
+and errors in `range`, so provide `[]` explicitly. Nested objects are never
+constructed. Dynamic/nested missing lookups retain native Go missing-key behavior,
+which may print `<no value>` or error. Neither defaults nor runtime language maps
+enter stored Case JSON, import fingerprints or exports.
 
 ## Generation evaluation and history
 
@@ -479,30 +486,30 @@ requirements and the distinction from historical SQLite migrations.
 
 ## Import and export
 
-### Eve Vocat variables
+### Template-led variables
 
-Raw variable imports use `input_format:"eve-vocat"` with `format:"json"|"jsonl"`.
-The HTTP import default is package mode, described below; raw variable mode must
-be explicit. For example:
+Raw imports use `input_format:"variables"`, a saved `template_id`, and
+`format:"json"|"jsonl"`. The HTTP default is package mode, described below;
+raw mode must be explicit. For example, under a template using `.text` and
+`.context`:
 
 ```json
-{"CurrentText":"法治的理念要得到践行。","PriorText":"问渠哪得清如许？为有源头活水来。\n我是一个长期生活在书斋里的人。","ReplacementMap":"","SourceLanguage":"zh-CN"}
+{"text":"待处理文本","large":9007199254740993,"options":{"enabled":false}}
 ```
 
-`CurrentText` and `SourceLanguage` must be nonblank strings; source language is
-explicit, never automatically detected. Missing `PriorText` and `ReplacementMap`
-default to empty strings before preview, fingerprinting and commit. Explicit
-values and custom variables are preserved. A single variables object needs no
-package header, Case wrapper or ID. A JSON array of objects or JSONL with one
-variables object per nonblank line imports multiple Cases. Records are Case
-variables, not full upstream requests; exact numeric literals are retained.
-`TargetLanguageNameMap` is rejected. Empty batches, null/scalar records and
-malformed records reject the entire import.
+Template keys guide callers; missing and extra keys are allowed. Import never
+fills fields, infers types, coerces values or simulates Group rendering.
+`{}` is valid. SourceLanguage is optional, but must be a string when supplied.
+A single object needs no package header, Case wrapper or ID. Arrays of objects
+or JSONL with one object per nonblank line import multiple Cases. Arbitrary JSON
+values and exact numeric literals are retained. `TargetLanguageNameMap`, empty
+batches, null/scalar records and malformed data reject the entire import;
+row/JSONL line positions identify invalid records. Actual template structure/type
+errors are checked by request preview and generation freeze before dispatch.
 
-Raw import preview `file_id` values are positional references (`row-1`, `row-2`,
-…), never persisted Case IDs. New Cases receive random IDs on commit; identical
-inputs reuse Cases under the shared import rules below. Package mode does not
-apply the Eve/Vocat required fields or defaults.
+Preview `file_id` values are positional references (`row-1`, `row-2`, …), never
+persisted IDs. New Cases receive random IDs; identical inputs reuse Cases
+independently of the selected template. Import does not bind Cases to templates.
 
 ### Standard packages
 
@@ -520,13 +527,20 @@ rejected with actionable errors, never silently dropped.
 ### Import preview and commit
 
 `POST /api/cases/import/preview` and `POST /api/cases/import` accept
-`{state_version,input_format:"package"|"eve-vocat",format:"json"|"jsonl",content:"<file text>",collection_ids?:[]}`.
-Omitted or empty `input_format` selects package mode. Optional `collection_ids`
-adds all imported Cases to existing local collections.
+`{state_version,input_format:"package"|"variables",template_id?:string,format:"json"|"jsonl",content:"<file text>",collection_ids?:[]}`.
+Omitted or empty `input_format` selects package mode. Raw mode requires an
+existing saved template; package mode rejects an explicit nonempty `template_id`.
+The obsolete `eve-vocat` mode and unknown modes return 400. Stale version is
+checked first, then mode/template, template compilation and content/plan.
+Commit repeats template validation atomically against its current state.
+Optional `collection_ids` adds all imported Cases to existing local collections.
 
 Preview returns
-`{state_version,new_count,existing_count,cases:[{file_id,status:"new"|"existing",local_id?,variables}],collection_count,warnings:[]}`.
-It does not write state. Commit validates the entire input atomically and returns
+`{state_version,new_count,existing_count,cases:[{file_id,status:"new"|"existing",local_id?,variables,variables_json}],collection_count,warnings:[]}`.
+Raw preview additionally supplies `template_id`, nonempty `input_keys` and
+`dynamic_inputs:true` when applicable. `variables_json` is a derived exact JSON
+object string for lossless display; `variables` remains the original input.
+Preview does not write state. Commit validates the entire input atomically and returns
 `{state:<StateView>,new_count,existing_count,case_id_map:{<file ID>:<local ID>},warnings:[]}`.
 
 Fingerprinting canonicalizes object-key ordering only. Numeric literals, types,
@@ -540,6 +554,12 @@ different input and dangling collection references fail without writes.
 Reimport is membership-idempotent. Imported collections retain their file ID on
 creation. An existing collection ID keeps its current name and only adds missing
 members; distinct collection IDs are never merged by name.
+
+Import only changes Cases and collections, never Draft selection/groups/metrics.
+It does not select the returned IDs or navigate to a run. Adding members to a
+collection already referenced by Draft naturally changes its future resolved
+membership, while Draft IDs and frozen runs remain unchanged. Export selection
+and package content are independent of the import template.
 
 ### Case package export
 

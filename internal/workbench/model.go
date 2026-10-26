@@ -37,10 +37,9 @@ type Message struct {
 	Content string `json:"content"`
 }
 type Template struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Messages        []Message `json:"messages"`
-	InputContractID string    `json:"input_contract_id,omitempty"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Messages []Message `json:"messages"`
 }
 type Provider struct {
 	ID            string `json:"id"`
@@ -75,15 +74,14 @@ type Draft struct {
 	Metrics         []MetricSelection `json:"metrics"`
 }
 type State struct {
-	Version        int64           `json:"version"`
-	Cases          []Case          `json:"cases"`
-	Collections    []Collection    `json:"collections"`
-	Templates      []Template      `json:"templates"`
-	Providers      []Provider      `json:"providers"`
-	Metrics        []Metric        `json:"metrics"`
-	InputContracts []InputContract `json:"input_contracts"`
-	Settings       Settings        `json:"settings"`
-	Draft          Draft           `json:"draft"`
+	Version     int64        `json:"version"`
+	Cases       []Case       `json:"cases"`
+	Collections []Collection `json:"collections"`
+	Templates   []Template   `json:"templates"`
+	Providers   []Provider   `json:"providers"`
+	Metrics     []Metric     `json:"metrics"`
+	Settings    Settings     `json:"settings"`
+	Draft       Draft        `json:"draft"`
 }
 type RunInput struct {
 	StateVersion    int64             `json:"state_version"`
@@ -114,19 +112,23 @@ type FrozenRequest struct {
 	Runs               int                 `json:"runs"`
 	LanguageResolution *LanguageResolution `json:"language_resolution,omitempty"`
 }
+type SnapshotTemplate struct {
+	Template
+	InputContractID string `json:"input_contract_id,omitempty"`
+}
 type Snapshot struct {
-	Cases          []SnapshotCase          `json:"cases"`
-	Templates      []Template              `json:"templates"`
-	Providers      []Provider              `json:"providers"`
-	Groups         []Group                 `json:"groups"`
-	CaseIDs        []string                `json:"case_ids"`
-	TimeoutSeconds int                     `json:"timeout_seconds"`
-	Requests       []FrozenRequest         `json:"requests"`
-	Selection      *Selection              `json:"selection,omitempty"`
-	Collections    []Collection            `json:"collections,omitempty"`
-	Metrics        []FrozenMetric          `json:"metrics,omitempty"`
-	InputContracts []InputContract         `json:"input_contracts,omitempty"`
-	Evaluation     *FrozenEvaluationConfig `json:"evaluation,omitempty"`
+	Cases                []SnapshotCase          `json:"cases"`
+	Templates            []SnapshotTemplate      `json:"templates"`
+	Providers            []Provider              `json:"providers"`
+	Groups               []Group                 `json:"groups"`
+	CaseIDs              []string                `json:"case_ids"`
+	TimeoutSeconds       int                     `json:"timeout_seconds"`
+	Requests             []FrozenRequest         `json:"requests"`
+	Selection            *Selection              `json:"selection,omitempty"`
+	Collections          []Collection            `json:"collections,omitempty"`
+	Metrics              []FrozenMetric          `json:"metrics,omitempty"`
+	LegacyInputContracts json.RawMessage         `json:"input_contracts,omitempty"`
+	Evaluation           *FrozenEvaluationConfig `json:"evaluation,omitempty"`
 	// LegacyAfterGenerationEvaluation preserves legacy schema2 snapshot
 	// metadata on read/export. It is never executed or accepted as write
 	// input; generation replay clears it and Evaluation. Stored bytes are not

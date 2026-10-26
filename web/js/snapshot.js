@@ -35,7 +35,6 @@ function snapshotHtml(snapshot) {
           <div class="snapshot-chip"><div class="name">对照配置</div><div class="meta">${groups.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">共享集合</div><div class="meta">${collections.length} 个</div></div>
           ${metrics.length ? `<div class="snapshot-chip"><div class="name">评估指标</div><div class="meta">${metrics.length} 个指标</div></div>` : ''}
-          <div class="snapshot-chip"><div class="name">输入契约</div><div class="meta">${contracts.length} 个</div></div>
           <div class="snapshot-chip"><div class="name">冻结请求</div><div class="meta">${requests.length} 个渲染请求</div></div>
         </div>
       </div>

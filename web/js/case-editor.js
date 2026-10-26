@@ -1,7 +1,7 @@
-import { ICON_TRASH, KNOWN_VARIABLES, PROHIBITED_VARIABLES } from './constants.js';
-import { $, clone, esc, excerptText, hasOwn, pretty, shortId } from './utils.js';
+import { ICON_TRASH, PROHIBITED_VARIABLES } from './constants.js';
+import { $, clone, esc, hasOwn, pretty, shortId } from './utils.js';
 import { App } from './state.js';
-import { caseById, caseEditorDirty, collectionsForCase, markEdit, setEqual } from './model.js';
+import { caseById, caseEditorDirty, collectionsForCase, markEdit } from './model.js';
 import { setView } from './navigation.js';
 import { apiPost } from './api.js';
 import { stateMutation } from './mutations.js';
@@ -38,48 +38,33 @@ function openCaseEditor(mode, id = null) {
   const source = id ? caseById(id) : null;
   if (mode === 'edit' && !source) return;
   const baseline = source ? caseEditorBaselineFromCase(source) : { raw: '{}', variables: {}, parsedOk: true };
-  const variables = clone(baseline.variables);
-  const extraKeys = Object.keys(variables).filter((k) => !KNOWN_VARIABLES.includes(k) && !PROHIBITED_VARIABLES.includes(k));
-  const extraValues = {};
-  for (const k of extraKeys) extraValues[k] = variables[k];
+  const variables = baseline.variables;
+  const collectionIds = source ? collectionsForCase(source.id).map((c) => c.id) : [];
   App.caseEditor = {
     mode,
     sourceId: source ? source.id : null,
     baseline,
     variables,
-    extraValues,
-    removedExtras: new Set(),
+    fieldValues: new Map(Object.entries(variables)),
     editedFields: new Set(),
-    editedExtras: new Set(),
-    baselineCollections: new Set(source ? collectionsForCase(source.id).map((c) => c.id) : []),
-    collectionIds: new Set(source ? collectionsForCase(source.id).map((c) => c.id) : []),
-    tab: 'form',
+    removedFields: new Set(),
+    baselineCollections: new Set(collectionIds),
+    collectionIds: new Set(collectionIds),
+    tab: baseline.parsedOk ? 'form' : 'json',
     jsonText: baseline.raw,
     jsonValid: baseline.parsedOk,
     jsonError: baseline.parsedOk ? '' : '服务端 variables_json 无法解析；请用高级 JSON 修正。',
-    currentText: typeof variables.CurrentText === 'string' ? variables.CurrentText : '',
-    priorText: typeof variables.PriorText === 'string' ? variables.PriorText : '',
-    sourceLanguage: typeof variables.SourceLanguage === 'string' ? variables.SourceLanguage : '',
-    replacementType: hasOwn(variables, 'ReplacementMap') ? typeof variables.ReplacementMap : 'undefined',
-    replacementText: renderReplacementForForm(variables),
     formError: '',
     busy: false
   };
-  if (!baseline.parsedOk) App.caseEditor.tab = 'json';
-  const ed = App.caseEditor;
   if (source) App.activeCaseId = source.id;
   setView('case-editor');
   renderCaseEditor();
   window.setTimeout(() => {
-    if (App.caseEditor && App.caseEditor.tab === 'form') $('case-current')?.focus();
+    if (App.caseEditor?.tab === 'form') {
+      $('case-field-list').querySelector('textarea')?.focus();
+    }
   }, 0);
-}
-
-function renderReplacementForForm(variables) {
-  if (!hasOwn(variables, 'ReplacementMap')) return '';
-  const value = variables.ReplacementMap;
-  if (typeof value === 'string') return value;
-  return pretty(value);
 }
 
 function renderCaseEditor() {
@@ -90,6 +75,8 @@ function renderCaseEditor() {
   $('case-mode-json').setAttribute('aria-selected', ed.tab === 'json' ? 'true' : 'false');
   $('case-mode-form').classList.toggle('primary', ed.tab === 'form');
   $('case-mode-json').classList.toggle('primary', ed.tab === 'json');
+  $('case-mode-form').disabled = ed.busy;
+  $('case-mode-json').disabled = ed.busy;
   $('case-form-panel').hidden = ed.tab !== 'form';
   $('case-json-panel').hidden = ed.tab !== 'json';
   $('case-id-readonly').value = ed.mode === 'edit' ? shortId(ed.sourceId || '') : '保存后生成随机 ID';
@@ -97,42 +84,27 @@ function renderCaseEditor() {
   $('case-copy-id').disabled = ed.mode !== 'edit';
   $('case-delete-btn').hidden = ed.mode !== 'edit';
   $('case-copy-btn').hidden = ed.mode !== 'edit';
-  const current = $('case-current');
-  if (document.activeElement !== current) current.value = ed.currentText;
-  const prior = $('case-prior');
-  if (document.activeElement !== prior) prior.value = ed.priorText;
-  const source = $('case-source-language');
-  if (document.activeElement !== source) source.value = ed.sourceLanguage;
-  const repl = $('case-replacement');
-  if (document.activeElement !== repl) repl.value = ed.replacementText;
-  const replNonString = ed.replacementType !== 'undefined' && ed.replacementType !== 'string';
-  repl.readOnly = replNonString;
-  repl.placeholder = replNonString ? '非字符串值请在高级 JSON 中编辑' : '添加替换规则…';
-  const typeTag = $('case-replacement-type');
-  typeTag.textContent = ed.replacementType === 'undefined' ? '未设置' : ed.replacementType;
-  typeTag.classList.toggle('warn', replNonString);
-
-  const extraList = $('case-extra-list');
-  const keys = Object.keys(ed.extraValues).sort();
-  $('case-extra-count').textContent = String(keys.length);
-  extraList.innerHTML = keys.map((key) => {
-    const value = ed.extraValues[key];
-    if (typeof value === 'string') {
-      return `<div class="extra-row" data-extra-row="${esc(key)}">
-        <span class="extra-key mono">${esc(key)}</span>
-        <span class="type-tag">string</span>
-        <input class="input" data-extra-string="${esc(key)}" value="${esc(value)}" aria-label="${esc(`${key} 的值`)}">
-        <button type="button" class="mini-btn danger" data-extra-remove="${esc(key)}" title="移除变量">${ICON_TRASH}</button>
+  const fieldList = $('case-field-list');
+  $('case-field-count').textContent = String(ed.fieldValues.size);
+  // Keep the focused textarea intact when a save or collection change re-renders.
+  if (!fieldList.contains(document.activeElement)) {
+    fieldList.innerHTML = [...ed.fieldValues.keys()].sort().map((key) => {
+      const value = ed.fieldValues.get(key);
+      const type = Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value);
+      return `<div class="field" data-field-row="${esc(key)}">
+        <div class="field-label-row">
+          <span class="mono">${esc(key)} <span class="type-tag">${esc(type)}</span></span>
+          <button type="button" class="mini-btn danger" data-field-remove="${esc(key)}" title="移除字段">${ICON_TRASH}</button>
+        </div>
+        ${typeof value === 'string'
+          ? `<textarea class="code-editor case-textarea" data-field-string="${esc(key)}" spellcheck="false" aria-label="${esc(`${key} 的值`)}"></textarea>`
+          : `<button type="button" class="link-btn" data-field-json="${esc(key)}">在 JSON 中编辑</button>`}
       </div>`;
+    }).join('') || '<div class="muted small">没有输入字段。可添加字符串字段，或在高级 JSON 中填写其他值。</div>';
+    for (const input of fieldList.querySelectorAll('[data-field-string]')) {
+      input.value = ed.fieldValues.get(input.dataset.fieldString);
     }
-    return `<div class="extra-row" data-extra-row="${esc(key)}">
-      <span class="extra-key mono">${esc(key)}</span>
-      <span class="type-tag">${esc(Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value))}</span>
-      <code class="extra-json" title="${esc(pretty(value))}">${esc(excerptText(pretty(value), 120))}</code>
-      <button type="button" class="link-btn" data-extra-json="${esc(key)}">在高级 JSON 中编辑</button>
-      <button type="button" class="mini-btn danger" data-extra-remove="${esc(key)}" title="移除变量">${ICON_TRASH}</button>
-    </div>`;
-  }).join('') || '<div class="muted small">没有其他变量。</div>';
+  }
 
   const collections = $('case-collections');
   collections.innerHTML = App.state.collections.length
@@ -146,284 +118,241 @@ function renderCaseEditor() {
 
   const jsonTa = $('case-vars-json');
   if (document.activeElement !== jsonTa) jsonTa.value = ed.jsonText;
-
-  const prohibited = prohibitedKeys(ed.variables);
+  const prohibited = ed.tab === 'form'
+    ? PROHIBITED_VARIABLES.filter((key) => ed.fieldValues.has(key))
+    : prohibitedKeys(ed.variables);
   const messages = [];
   if (ed.formError) messages.push(ed.formError);
-  if (prohibited.length) messages.push(`变量包含禁用字段 ${prohibited.join(' / ')}：TargetLanguageNameMap 属于执行配置，不是 Case 输入。请在高级 JSON 中显式删除后再保存。`);
+  if (prohibited.length) messages.push(`变量包含禁用字段 ${prohibited.join(' / ')}：TargetLanguageNameMap 属于执行配置，不是 Case 输入。请显式删除后再保存。`);
   $('case-editor-error').textContent = messages.join(' ');
-  $('case-remove-prohibited').hidden = true;
-
-  const jsonError = $('case-json-error');
-  jsonError.textContent = ed.jsonError || '';
+  $('case-json-error').textContent = ed.jsonError || '';
   jsonTa.setAttribute('aria-invalid', ed.jsonValid ? 'false' : 'true');
-
   const impact = $('case-save-impact');
   const count = ed.collectionIds.size;
   impact.textContent = count > 0 ? `保存将影响 ${count} 个集合` : '';
   impact.hidden = count === 0;
-  $('case-save-btn').disabled = ed.busy || App.mutating;
-  $('case-cancel-btn').disabled = ed.busy || App.mutating;
+  for (const id of ['case-save-btn', 'case-cancel-btn', 'case-copy-btn', 'case-delete-btn']) {
+    $(id).disabled = ed.busy || App.mutating;
+  }
 }
 
-async function previewVariablesJson() {
-  const ed = App.caseEditor;
-  if (!ed) return null;
-  const { patch, remove } = buildCaseVariablePatch();
-  if (ed.formError) {
-    renderCaseEditor();
-    return null;
+function captureCaseEditor(ed) {
+  return {
+    tab: ed.tab,
+    jsonText: ed.jsonText,
+    fieldValues: new Map(ed.fieldValues),
+    editedFields: new Set(ed.editedFields),
+    removedFields: new Set(ed.removedFields),
+    collectionIds: new Set(ed.collectionIds)
+  };
+}
+
+function buildCaseVariablePatch(ed = App.caseEditor) {
+  const entries = [];
+  for (const key of ed.editedFields) {
+    if (ed.removedFields.has(key) || !ed.fieldValues.has(key)) continue;
+    const value = ed.fieldValues.get(key);
+    if (typeof value === 'string') entries.push([key, value]);
   }
+  return { patch: Object.fromEntries(entries), remove: [...ed.removedFields] };
+}
+
+async function previewVariablesJson(ed, submitted) {
+  const { patch, remove } = buildCaseVariablePatch(submitted);
   try {
     const payload = await apiPost('/api/cases/variables/preview', {
-      variables_json: ed.jsonText,
+      variables_json: submitted.jsonText,
       variable_patch: patch,
       remove_variables: remove
     });
-    return typeof payload.variables_json === 'string' ? payload.variables_json : null;
+    if (typeof payload.variables_json !== 'string') throw new Error('服务端未返回 variables_json。');
+    return payload.variables_json;
   } catch (err) {
-    ed.formError = `无法保留原始变量值：${err.message}`;
-    renderCaseEditor();
+    if (App.caseEditor === ed) {
+      ed.formError = `无法保留原始变量值：${err.message}`;
+    }
     return null;
   }
 }
 
 async function switchCaseEditorTab(tab) {
   const ed = App.caseEditor;
-  if (!ed || ed.tab === tab) return;
+  if (!ed || ed.tab === tab || ed.busy) return;
   if (tab === 'json') {
-    const variableDirty = ed.editedFields.size > 0 || ed.editedExtras.size > 0 || ed.removedExtras.size > 0;
-    if (variableDirty) {
-      const exact = await previewVariablesJson();
-      if (!exact) return;
-      ed.jsonText = exact;
-      ed.variables = safeParseObject(exact).value || ed.variables;
-      ed.jsonValid = true;
-      ed.jsonError = '';
-      ed.editedFields.clear();
-      ed.editedExtras.clear();
-      ed.removedExtras.clear();
+    const submitted = captureCaseEditor(ed);
+    let exact = ed.jsonText;
+    if (ed.editedFields.size || ed.removedFields.size) {
+      ed.busy = true;
+      renderCaseEditor();
+      exact = await previewVariablesJson(ed, submitted);
+      ed.busy = false;
+      if (App.caseEditor !== ed) return;
+      if (!exact) {
+        renderCaseEditor();
+        return;
+      }
     }
+    // A field edited while the lossless merge was pending must not be discarded.
+    const unchanged = ed.jsonText === submitted.jsonText
+      && fieldValuesEqual(ed.fieldValues, submitted.fieldValues);
+    if (!unchanged) {
+      ed.formError = '字段在切换期间发生变化，请再次切换以保留最新内容。';
+      renderCaseEditor();
+      return;
+    }
+    ed.jsonText = exact;
+    ed.variables = safeParseObject(exact).value;
+    ed.fieldValues = new Map(Object.entries(ed.variables));
+    ed.editedFields.clear();
+    ed.removedFields.clear();
+    ed.jsonValid = true;
+    ed.jsonError = '';
     ed.tab = 'json';
   } else {
     const parsed = safeParseObject(ed.jsonText);
     if (!parsed.ok) {
       ed.jsonError = parsed.error;
-      ed.tab = 'json';
       renderCaseEditor();
       return;
     }
     ed.variables = parsed.value;
-    ed.currentText = typeof parsed.value.CurrentText === 'string' ? parsed.value.CurrentText : '';
-    ed.priorText = typeof parsed.value.PriorText === 'string' ? parsed.value.PriorText : '';
-    ed.sourceLanguage = typeof parsed.value.SourceLanguage === 'string' ? parsed.value.SourceLanguage : '';
-    ed.replacementType = hasOwn(parsed.value, 'ReplacementMap') ? typeof parsed.value.ReplacementMap : 'undefined';
-    ed.replacementText = renderReplacementForForm(parsed.value);
-    ed.extraValues = {};
-    for (const [k, v] of Object.entries(parsed.value)) {
-      if (!KNOWN_VARIABLES.includes(k) && !PROHIBITED_VARIABLES.includes(k)) ed.extraValues[k] = v;
-    }
+    ed.fieldValues = new Map(Object.entries(parsed.value));
     ed.editedFields.clear();
-    ed.editedExtras.clear();
-    ed.removedExtras.clear();
+    ed.removedFields.clear();
     ed.jsonError = '';
     ed.jsonValid = true;
     ed.tab = 'form';
   }
+  ed.formError = '';
   renderCaseEditor();
 }
 
-function buildCaseVariablePatch() {
-  const ed = App.caseEditor;
-  const base = ed.variables || {};
-  const patch = {};
-  const remove = new Set(ed.removedExtras);
-  const setString = (key, value) => {
-    if (!ed.editedFields.has(key)) return;
-    if (!hasOwn(base, key)) {
-      if (value !== '') patch[key] = value;
-      return;
-    }
-    if (typeof base[key] === 'string') patch[key] = value;
-    else ed.formError = `${key} 当前不是字符串；请在高级 JSON 中修正。`;
-  };
-  setString('CurrentText', $('case-current').value);
-  setString('PriorText', $('case-prior').value);
-  setString('SourceLanguage', $('case-source-language').value);
-  if (ed.replacementType === 'string' || ed.replacementType === 'undefined') {
-    setString('ReplacementMap', $('case-replacement').value);
+function fieldValuesEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) {
+    if (!b.has(key) || b.get(key) !== value) return false;
   }
-  for (const key of ed.editedExtras) {
-    if (remove.has(key)) continue;
-    const value = ed.extraValues[key];
-    if (typeof value !== 'string') continue;
-    const baseValue = base[key];
-    if (!hasOwn(base, key)) {
-      if (value !== '') patch[key] = value;
-    } else if (typeof baseValue === 'string') {
-      patch[key] = value;
-    } else {
-      ed.formError = `变量 ${key} 当前不是字符串；请在高级 JSON 中修正。`;
-    }
-  }
-  return { patch, remove: [...remove] };
+  return true;
 }
 
-async function caseEditorSave() {
+function rebaseCaseEditor(ed, submitted, savedCase, collectionIds) {
+  const currentFields = ed.fieldValues;
+  const currentJson = ed.jsonText;
+  ed.sourceId = savedCase.id;
+  ed.mode = 'edit';
+  ed.baseline = caseEditorBaselineFromCase(savedCase);
+  ed.baselineCollections = new Set(collectionIds);
+  ed.editedFields = new Set();
+  ed.removedFields = new Set();
+  if (submitted.tab === 'json' && currentJson !== submitted.jsonText) {
+    const parsed = safeParseObject(currentJson);
+    ed.jsonValid = parsed.ok;
+    ed.jsonError = parsed.ok ? '' : parsed.error;
+    if (parsed.ok) ed.variables = parsed.value;
+    ed.fieldValues = new Map(Object.entries(ed.variables));
+    return;
+  }
+  ed.jsonText = ed.baseline.raw;
+  ed.variables = ed.baseline.variables;
+  ed.fieldValues = new Map(Object.entries(ed.variables));
+  ed.jsonValid = ed.baseline.parsedOk;
+  ed.jsonError = '';
+  if (submitted.tab !== 'form') return;
+  const keys = new Set([...submitted.fieldValues.keys(), ...currentFields.keys()]);
+  for (const key of keys) {
+    if (currentFields.has(key) === submitted.fieldValues.has(key)
+      && currentFields.get(key) === submitted.fieldValues.get(key)) continue;
+    if (!currentFields.has(key)) {
+      if (ed.fieldValues.has(key)) {
+        ed.fieldValues.delete(key);
+        ed.removedFields.add(key);
+      }
+    } else {
+      const value = currentFields.get(key);
+      if (!ed.fieldValues.has(key) || ed.fieldValues.get(key) !== value) {
+        ed.fieldValues.set(key, value);
+        ed.editedFields.add(key);
+      }
+    }
+  }
+}
+
+async function submitCaseEditor(copyAsNew) {
   const ed = App.caseEditor;
   if (!ed || ed.busy || App.mutating) return;
   ed.formError = '';
   if (ed.tab === 'json') {
-    const parsed = safeParseObject($('case-vars-json').value);
+    const parsed = safeParseObject(ed.jsonText);
     if (!parsed.ok) {
       ed.jsonError = parsed.error;
       renderCaseEditor();
       return;
     }
-    const prohibited = prohibitedKeys(parsed.value);
-    if (prohibited.length) {
-      ed.jsonError = `变量包含禁用字段 ${prohibited.join(' / ')}；请显式删除后再保存。`;
+    if (prohibitedKeys(parsed.value).length) {
+      ed.jsonError = '变量包含禁用字段 TargetLanguageNameMap；请显式删除后再保存。';
       renderCaseEditor();
       return;
     }
-  } else {
-    const prohibited = prohibitedKeys(ed.variables);
-    if (prohibited.length) {
-      ed.formError = `变量包含禁用字段 ${prohibited.join(' / ')}；请切换到高级 JSON 显式删除。`;
-      renderCaseEditor();
-      return;
-    }
+  } else if (PROHIBITED_VARIABLES.some((key) => ed.fieldValues.has(key))) {
+    ed.formError = '变量包含禁用字段 TargetLanguageNameMap；请显式删除后再保存。';
+    renderCaseEditor();
+    return;
   }
-  const collectionIds = [...ed.collectionIds];
-  const submitGen = App.editGeneration;
-  const submittedSnapshot = {
-    current: $('case-current') ? $('case-current').value : ed.currentText,
-    prior: $('case-prior') ? $('case-prior').value : ed.priorText,
-    source: $('case-source-language') ? $('case-source-language').value : ed.sourceLanguage,
-    replacement: $('case-replacement') ? $('case-replacement').value : ed.replacementText,
-    extras: { ...ed.extraValues },
-    removed: new Set(ed.removedExtras),
-    collections: new Set(ed.collectionIds),
-    jsonText: $('case-vars-json') ? $('case-vars-json').value : ed.jsonText
-  };
-  const formDirty = ed.editedFields.size > 0 || ed.editedExtras.size > 0 || ed.removedExtras.size > 0;
-  let variablesJson = null;
-  if (ed.tab === 'json') {
-    variablesJson = $('case-vars-json').value;
-  } else if (formDirty || ed.mode === 'create') {
-    variablesJson = await previewVariablesJson();
-    if (!variablesJson) return;
-  } else if (ed.jsonText !== ed.baseline.raw) {
-    variablesJson = ed.jsonText;
-  }
-  submittedSnapshot.variablesJson = variablesJson;
-  if (ed.mode === 'edit' && variablesJson === null && setEqual(ed.collectionIds, ed.baselineCollections)) {
+  if (!copyAsNew && ed.mode === 'edit' && !caseEditorDirty()) {
     ed.formError = '没有需要保存的更改。';
     renderCaseEditor();
     return;
   }
+  if (copyAsNew && !window.confirm('以当前输入创建一个新的随机 ID Case？原 Case 不会被修改。')) return;
+  const submitted = captureCaseEditor(ed);
+  const creating = copyAsNew || ed.mode === 'create';
+  const beforeIds = new Set(App.state.cases.map((c) => c.id));
   ed.busy = true;
   renderCaseEditor();
-  const path = ed.mode === 'edit' ? `/api/cases/${encodeURIComponent(ed.sourceId)}` : '/api/cases';
-  const method = ed.mode === 'edit' ? 'PUT' : 'POST';
-  const body = { collection_ids: collectionIds };
-  if (variablesJson !== null) body.variables_json = variablesJson;
-  const beforeIds = new Set(App.state.cases.map((c) => c.id));
-  stateMutation(path, method, body, {
-    errorLabel: '保存 Case 失败',
-    onSuccess: () => {
-      ed.busy = false;
-      if (App.editGeneration === submitGen) {
-        App.caseEditor = null;
-        setView('cases', { force: true });
-        toast(ed.mode === 'edit' ? 'Case 已保存' : 'Case 已创建', 'ok');
-      } else {
-        if (ed.mode === 'create') {
-          const added = App.state.cases.find((c) => !beforeIds.has(c.id));
-          if (added) ed.sourceId = added.id;
-          ed.mode = 'edit';
+  try {
+    const variablesJson = submitted.tab === 'form'
+      ? await previewVariablesJson(ed, submitted)
+      : submitted.jsonText;
+    if (!variablesJson || App.caseEditor !== ed) return;
+    const path = creating ? '/api/cases' : `/api/cases/${encodeURIComponent(ed.sourceId)}`;
+    await stateMutation(path, creating ? 'POST' : 'PUT', {
+      variables_json: variablesJson,
+      collection_ids: [...submitted.collectionIds]
+    }, {
+      errorLabel: copyAsNew ? '复制 Case 失败' : '保存 Case 失败',
+      onSuccess: (serverState) => {
+        if (App.caseEditor !== ed) return;
+        const savedCase = creating
+          ? serverState.cases.find((c) => !beforeIds.has(c.id))
+          : serverState.cases.find((c) => c.id === ed.sourceId);
+        const collectionIds = serverState.collections.filter((c) => c.case_ids.includes(savedCase.id)).map((c) => c.id);
+        rebaseCaseEditor(ed, submitted, savedCase, collectionIds);
+        if (caseEditorDirty()) {
+          toast('已保存提交时的内容；请求期间的新编辑仍保留在本页，可再次保存。', 'warn', 5000);
+        } else {
+          App.caseEditor = null;
+          setView('cases', { force: true });
+          toast(copyAsNew ? `已复制为新 Case ${shortId(savedCase.id)}` : (creating ? 'Case 已创建' : 'Case 已保存'), 'ok');
         }
-        const savedCase = caseById(ed.sourceId);
-        ed.baseline = caseEditorBaselineFromCase(savedCase || { variables_json: '{}', variables: {} });
-        ed.baselineCollections = new Set(savedCase ? collectionsForCase(savedCase.id).map((c) => c.id) : []);
-        const currentJson = $('case-vars-json') ? $('case-vars-json').value : ed.jsonText;
-        ed.jsonText = currentJson !== submittedSnapshot.variablesJson ? currentJson : ed.baseline.raw;
-        const keepEdited = new Set();
-        if ($('case-current') && $('case-current').value !== submittedSnapshot.current) keepEdited.add('CurrentText');
-        if ($('case-prior') && $('case-prior').value !== submittedSnapshot.prior) keepEdited.add('PriorText');
-        if ($('case-source-language') && $('case-source-language').value !== submittedSnapshot.source) keepEdited.add('SourceLanguage');
-        if ($('case-replacement') && $('case-replacement').value !== submittedSnapshot.replacement) keepEdited.add('ReplacementMap');
-        ed.editedFields = keepEdited;
-        ed.editedExtras = new Set([...ed.editedExtras].filter((k) => ed.extraValues[k] !== submittedSnapshot.extras[k]));
-        ed.removedExtras = new Set([...ed.removedExtras].filter((k) => !submittedSnapshot.removed.has(k)));
-        renderCaseEditor();
-        toast('已保存提交时的内容；请求期间的新编辑仍保留在本页，可再次保存。', 'warn', 5000);
       }
-    }
-  }).then((payload) => {
-    if (!payload) {
-      ed.busy = false;
-      renderCaseEditor();
-    }
-  });
+    });
+  } finally {
+    ed.busy = false;
+    if (App.caseEditor === ed) renderCaseEditor();
+  }
 }
 
-async function caseEditorCopyAsNew() {
-  const ed = App.caseEditor;
-  if (!ed || App.mutating) return;
-  let variablesJson;
-  if (ed.tab === 'json') {
-    const parsed = safeParseObject($('case-vars-json').value);
-    if (!parsed.ok) {
-      ed.jsonError = parsed.error;
-      renderCaseEditor();
-      return;
-    }
-    variablesJson = $('case-vars-json').value;
-  } else {
-    const variableDirty = ed.editedFields.size > 0 || ed.editedExtras.size > 0 || ed.removedExtras.size > 0;
-    variablesJson = variableDirty ? await previewVariablesJson() : ed.baseline.raw;
-    if (!variablesJson) return;
-  }
-  const parsed = safeParseObject(variablesJson);
-  if (!parsed.ok) {
-    ed.formError = parsed.error;
-    renderCaseEditor();
-    return;
-  }
-  const prohibited = prohibitedKeys(parsed.value);
-  if (prohibited.length) {
-    ed.formError = `变量包含禁用字段 ${prohibited.join(' / ')}；请显式删除后再复制。`;
-    renderCaseEditor();
-    return;
-  }
-  if (!window.confirm('以当前输入创建一个新的随机 ID Case？原 Case 不会被修改。')) return;
-  ed.busy = true;
-  renderCaseEditor();
-  const beforeIds = new Set(App.state.cases.map((c) => c.id));
-  stateMutation('/api/cases', 'POST', {
-    variables_json: variablesJson,
-    collection_ids: [...ed.collectionIds]
-  }, {
-    errorLabel: '复制 Case 失败',
-    onSuccess: () => {
-      ed.busy = false;
-      const added = App.state.cases.find((c) => !beforeIds.has(c.id));
-      App.caseEditor = null;
-      setView('cases', { force: true });
-      toast(added ? `已复制为新 Case ${shortId(added.id)}` : '已复制为新 Case', 'ok');
-    }
-  }).then((payload) => {
-    if (!payload) {
-      ed.busy = false;
-      renderCaseEditor();
-    }
-  });
+function caseEditorSave() {
+  return submitCaseEditor(false);
+}
+
+function caseEditorCopyAsNew() {
+  return submitCaseEditor(true);
 }
 
 function caseEditorDelete() {
   const ed = App.caseEditor;
-  if (!ed || ed.mode !== 'edit' || App.mutating) return;
+  if (!ed || ed.busy || ed.mode !== 'edit' || App.mutating) return;
   const c = caseById(ed.sourceId);
   if (!c) return;
   const membership = collectionsForCase(c.id);
@@ -452,19 +381,6 @@ function caseEditorCancel() {
   setView('cases', { force: true });
 }
 
-async function pasteInto(id) {
-  const el = $(id);
-  if (!el) return;
-  try {
-    const text = await navigator.clipboard.readText();
-    el.value = text;
-    markEdit();
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  } catch {
-    toast('无法读取剪贴板，请手动粘贴。', 'error');
-  }
-}
-
 export function bindCaseEditorEvents() {
   $('case-mode-form').addEventListener('click', () => switchCaseEditorTab('form'));
   $('case-mode-json').addEventListener('click', () => switchCaseEditorTab('json'));
@@ -478,25 +394,6 @@ export function bindCaseEditorEvents() {
       toast('复制失败，请手动选择 ID', 'error');
     }
   });
-  $('case-paste-current').addEventListener('click', () => pasteInto('case-current'));
-  $('case-paste-prior').addEventListener('click', () => pasteInto('case-prior'));
-  ['case-current', 'case-prior', 'case-source-language'].forEach((id) => {
-    $(id).addEventListener('input', () => {
-      const ed = App.caseEditor;
-      if (!ed) return;
-      if (id === 'case-current') { ed.currentText = $(id).value; ed.editedFields.add('CurrentText'); }
-      if (id === 'case-prior') { ed.priorText = $(id).value; ed.editedFields.add('PriorText'); }
-      if (id === 'case-source-language') { ed.sourceLanguage = $(id).value; ed.editedFields.add('SourceLanguage'); }
-      markEdit();
-    });
-  });
-  $('case-replacement').addEventListener('input', () => {
-    const ed = App.caseEditor;
-    if (!ed) return;
-    ed.replacementText = $('case-replacement').value;
-    ed.editedFields.add('ReplacementMap');
-    markEdit();
-  });
   $('case-collections').addEventListener('change', (e) => {
     const cb = e.target.closest('[data-case-collection]');
     const ed = App.caseEditor;
@@ -506,45 +403,44 @@ export function bindCaseEditorEvents() {
     markEdit();
     renderCaseEditor();
   });
-  $('case-extra-list').addEventListener('click', (e) => {
+  $('case-field-list').addEventListener('click', (e) => {
     const ed = App.caseEditor;
     if (!ed) return;
-    const remove = e.target.closest('[data-extra-remove]');
+    const remove = e.target.closest('[data-field-remove]');
     if (remove) {
-      const key = remove.dataset.extraRemove;
-      delete ed.extraValues[key];
-      ed.removedExtras.add(key);
+      const key = remove.dataset.fieldRemove;
+      ed.fieldValues.delete(key);
+      ed.editedFields.delete(key);
+      if (hasOwn(ed.variables, key)) ed.removedFields.add(key);
+      else ed.removedFields.delete(key);
+      ed.formError = '';
       markEdit();
+      remove.blur();
       renderCaseEditor();
       return;
     }
-    const json = e.target.closest('[data-extra-json]');
-    if (json) {
-      if (ed.tab !== 'json') switchCaseEditorTab('json');
-      return;
-    }
+    if (e.target.closest('[data-field-json]')) switchCaseEditorTab('json');
   });
-  $('case-extra-list').addEventListener('input', (e) => {
+  $('case-field-list').addEventListener('input', (e) => {
     const ed = App.caseEditor;
-    const input = e.target.closest('[data-extra-string]');
+    const input = e.target.closest('[data-field-string]');
     if (!ed || !input) return;
-    ed.extraValues[input.dataset.extraString] = input.value;
-    ed.removedExtras.delete(input.dataset.extraString);
-    ed.editedExtras.add(input.dataset.extraString);
+    const key = input.dataset.fieldString;
+    if (!ed.fieldValues.has(key) || typeof ed.fieldValues.get(key) !== 'string') return;
+    ed.fieldValues.set(key, input.value);
+    ed.removedFields.delete(key);
+    if (hasOwn(ed.variables, key) && ed.variables[key] === input.value) ed.editedFields.delete(key);
+    else ed.editedFields.add(key);
+    ed.formError = '';
     markEdit();
   });
-  $('case-extra-add-btn').addEventListener('click', () => {
+  $('case-field-add-btn').addEventListener('click', () => {
     const ed = App.caseEditor;
     if (!ed) return;
-    const key = $('case-extra-key').value;
-    const value = $('case-extra-value').value;
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      ed.formError = '变量名只能包含字母、数字和下划线，且不能以数字开头。';
-      renderCaseEditor();
-      return;
-    }
-    if (KNOWN_VARIABLES.includes(key)) {
-      ed.formError = `变量 ${key} 已在表单上方编辑。`;
+    const key = $('case-field-key').value;
+    const value = $('case-field-value').value;
+    if (!key.length) {
+      ed.formError = '字段名不能为空。';
       renderCaseEditor();
       return;
     }
@@ -553,17 +449,17 @@ export function bindCaseEditorEvents() {
       renderCaseEditor();
       return;
     }
-    if (hasOwn(ed.extraValues, key)) {
-      ed.formError = `变量 ${key} 已存在。`;
+    if (ed.fieldValues.has(key)) {
+      ed.formError = `字段 ${key} 已存在。`;
       renderCaseEditor();
       return;
     }
-    ed.extraValues[key] = value;
-    ed.removedExtras.delete(key);
-    ed.editedExtras.add(key);
+    ed.fieldValues.set(key, value);
+    ed.removedFields.delete(key);
+    ed.editedFields.add(key);
     ed.formError = '';
-    $('case-extra-key').value = '';
-    $('case-extra-value').value = '';
+    $('case-field-key').value = '';
+    $('case-field-value').value = '';
     markEdit();
     renderCaseEditor();
   });
@@ -575,6 +471,7 @@ export function bindCaseEditorEvents() {
     ed.jsonValid = parsed.ok;
     if (parsed.ok) {
       ed.variables = parsed.value;
+      ed.fieldValues = new Map(Object.entries(parsed.value));
       ed.jsonError = prohibitedKeys(parsed.value).length
         ? `变量包含禁用字段 ${prohibitedKeys(parsed.value).join(' / ')}；请显式删除后再保存。`
         : '';
@@ -582,6 +479,7 @@ export function bindCaseEditorEvents() {
       ed.jsonError = parsed.error;
     }
     $('case-json-error').textContent = ed.jsonError;
+    $('case-vars-json').setAttribute('aria-invalid', parsed.ok ? 'false' : 'true');
     markEdit();
   });
   $('case-save-btn').addEventListener('click', caseEditorSave);
@@ -590,4 +488,4 @@ export function bindCaseEditorEvents() {
   $('case-delete-btn').addEventListener('click', caseEditorDelete);
 }
 
-export { openCaseEditor, renderCaseEditor };
+export { buildCaseVariablePatch, openCaseEditor, rebaseCaseEditor, renderCaseEditor };

@@ -1,6 +1,6 @@
 import { App } from './state.js';
 import { caseById, collectionById, collectionsForCase, markEdit } from './model.js';
-import { $, currentTextOf, esc, excerptText, shortId, sourceLanguageOf } from './utils.js';
+import { $, caseTextOf, esc, excerptText, shortId, sourceLanguageOf } from './utils.js';
 import { ICON_EDIT } from './constants.js';
 import { renderShell, updateDirtyUI } from './shell-view.js';
 import { refreshRunPlan } from './run-plan.js';
@@ -30,7 +30,8 @@ function libraryFilteredCases() {
   }
   const q = search.trim().toLowerCase();
   if (q) {
-    list = list.filter((c) => c.id.toLowerCase().includes(q) || currentTextOf(c).toLowerCase().includes(q));
+    list = list.filter((c) => c.id.toLowerCase().includes(q)
+      || Object.values(c.variables || {}).some((value) => typeof value === 'string' && value.toLowerCase().includes(q)));
   }
   return list;
 }
@@ -83,7 +84,7 @@ function renderLibrary() {
         return `<tr class="${selected ? 'selected-row' : ''}" data-library-case="${esc(c.id)}">
           <td class="check-col"><input type="checkbox" data-library-check="${esc(c.id)}" ${selected ? 'checked' : ''} aria-label="${esc(`选择 Case ${c.id}`)}"></td>
           <td class="mono id-cell" title="${esc(c.id)}">${esc(shortId(c.id))}</td>
-          <td class="asr-cell" title="${esc(currentTextOf(c))}">${esc(excerptText(currentTextOf(c)) || '（无 CurrentText）')}</td>
+          <td class="asr-cell" title="${esc(caseTextOf(c))}">${esc(excerptText(caseTextOf(c)) || '（无文本字段）')}</td>
           <td class="mono source-cell">${esc(sourceLanguageOf(c) || '—')}</td>
           <td class="collections-cell">${names.length ? names.map((n) => `<span class="collection-name-chip">${esc(n)}</span>`).join('') : '<span class="muted">—</span>'}</td>
           <td class="actions"><button type="button" class="link-btn edit-link" data-library-edit="${esc(c.id)}">${ICON_EDIT}编辑</button></td>
@@ -404,4 +405,4 @@ export function bindLibraryEvents() {
   });
 }
 
-export { renderCollectionNav, renderLibrary };
+export { libraryFilteredCases, renderCollectionNav, renderLibrary };

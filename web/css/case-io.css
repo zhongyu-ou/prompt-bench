@@ -11,6 +11,11 @@
 .io-target-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .io-target-row .inline-field { flex: 0 1 420px; }
 .io-target-row .select { min-height: 34px; }
+.io-template-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.io-template-controls[hidden] { display: none; }
+.io-template-controls .inline-field { flex: 1 1 240px; min-width: 0; }
+#io-template-fields { flex: 1 1 100%; overflow-wrap: anywhere; }
+.io-template-controls .btn { flex: 0 0 auto; }
 .io-paste > label { font-size: 13px; font-weight: 600; }
 .io-paste-area { min-height: 120px; margin-top: 8px; }
 .io-counts { display: flex; align-items: baseline; gap: 44px; padding: 0 4px; }
@@ -23,15 +28,15 @@
 .io-new { color: var(--accent); }
 .io-existing strong { color: var(--ok); }
 .io-existing { color: var(--ok); }
-.io-preview-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-.io-preview-table { min-width: 880px; table-layout: fixed; }
-.io-preview-table th { padding: 9px 10px; text-align: center; }
-.io-preview-table td { padding: 9px 10px; font-size: 12px; vertical-align: top; text-align: center; }
-.io-preview-table td:nth-child(3), .io-preview-table td:nth-child(4) { text-align: left; }
-.io-preview-table th:first-child { width: 48px; }
-.io-preview-table th:nth-child(2) { width: 140px; }
-.io-preview-table th:nth-child(5) { width: 160px; }
-.io-preview-table th:last-child { width: 80px; }
+.io-preview-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
+.io-preview-table { min-width: 100%; width: max-content; }
+.io-preview-table th { min-width: 180px; max-width: 280px; padding: 9px 10px; text-align: left; overflow-wrap: anywhere; }
+.io-preview-table td { max-width: 280px; padding: 9px 10px; font-size: 12px; vertical-align: top; text-align: left; }
+.io-preview-table th:first-child { min-width: 48px; width: 48px; }
+.io-preview-table th:nth-last-child(-n+2) { min-width: 80px; width: 80px; text-align: center; }
+.io-preview-table td:nth-last-child(-n+2) { text-align: center; }
+.io-preview-table .io-json-detail td { text-align: left; }
+.io-json-detail .preview-code { max-width: min(70vw, 900px); max-height: 360px; overflow: auto; margin: 0; }
 .io-preview-table .status-existing { color: var(--ok); }
 .io-preview-table .status-new { color: var(--text-2); }
 .io-preview-value { white-space: pre-wrap; overflow-wrap: anywhere; }

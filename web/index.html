@@ -129,8 +129,10 @@
               </div>
             </div>
             <div class="editor-tools">
-              <label class="inline-field"><span>输入契约</span><select class="input select compact" id="template-contract" aria-label="模板输入契约"></select></label>
-              <button type="button" class="btn tiny" id="contracts-manage">管理共享契约</button>
+              <div class="mode-seg" role="group" aria-label="模板视图">
+                <button type="button" class="btn tiny mode-btn" id="template-mode-edit" aria-pressed="true">编辑模板</button>
+                <button type="button" class="btn tiny mode-btn" id="template-mode-preview" aria-pressed="false">请求预览</button>
+              </div>
               <button type="button" class="mismatch-btn" id="template-mismatch" hidden>编辑器模板≠配置绑定模板</button>
               <details class="menu" id="insert-var-menu">
                 <summary class="btn tiny">插入变量</summary>
@@ -138,6 +140,7 @@
               </details>
             </div>
             <div class="editor-error" id="editor-render-error" role="alert" hidden></div>
+            <div id="template-edit-panel">
             <div class="message-tabs" id="message-tabs" role="tablist" aria-label="模板消息"></div>
             <div class="message-editor">
               <textarea id="message-content" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="模板消息内容"></textarea>
@@ -151,6 +154,17 @@
                 <span class="muted small" id="message-lineinfo">行 1，列 1</span>
               </div>
             </div>
+            </div>
+            <div id="template-preview-panel" class="template-preview-panel" hidden>
+              <div class="template-preview-toolbar">
+                <label class="inline-field"><span>预览配置</span><select class="input select compact" id="template-preview-group"></select></label>
+                <button type="button" class="btn tiny" id="template-preview-run">更新预览</button>
+                <button type="button" class="btn tiny" id="template-preview-copy">复制请求</button>
+              </div>
+              <p class="muted small" id="template-preview-status" aria-live="polite"></p>
+              <div id="template-preview-messages"></div>
+              <details id="template-preview-raw-details"><summary>完整请求</summary><div id="template-preview-raw"></div></details>
+            </div>
           </section>
 
         </div>
@@ -158,6 +172,7 @@
           <section class="card workbench-scope">
             <div class="card-head compact-head">
               <h2 class="card-title">运行数据</h2>
+              <button type="button" class="btn tiny" id="workbench-import-btn">导入数据</button>
               <button type="button" class="btn tiny" id="workbench-cases-btn">在 Case 库调整</button>
             </div>
             <div class="scope-summary" id="workbench-scope-summary"></div>
@@ -273,7 +288,7 @@
       <div class="library-toolbar">
         <div class="search-box">
           <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.8" cy="8.8" r="5.2"/><path d="m12.8 12.8 3.7 3.7"/></svg>
-          <input id="library-search" class="input" type="search" autocomplete="off" placeholder="搜索 Case ID 或 CurrentText…" aria-label="搜索 Case">
+          <input id="library-search" class="input" type="search" autocomplete="off" placeholder="搜索 Case ID 或文本字段…" aria-label="搜索 Case">
         </div>
         <label class="inline-field source-filter"><span>源语言</span><select class="input select compact" id="library-source"></select></label>
         <span class="muted library-result-count" id="library-result-count">0 个结果</span>
@@ -296,7 +311,7 @@
             <tr>
               <th scope="col" class="check-col"><input type="checkbox" id="library-page-check" aria-label="选择本页全部 Case"></th>
               <th scope="col">Case ID</th>
-              <th scope="col">当前 ASR · CurrentText</th>
+              <th scope="col">输入摘录</th>
               <th scope="col">源语言</th>
               <th scope="col">所属共享集合</th>
               <th scope="col">操作</th>
@@ -362,33 +377,17 @@
               <button type="button" class="btn tiny" id="case-copy-id">复制完整 ID</button>
             </div>
           </div>
-          <div class="field">
-            <div class="field-label-row"><span>CurrentText · 当前 ASR 文本</span><button type="button" class="btn tiny" id="case-paste-current">粘贴</button></div>
-            <textarea class="code-editor case-textarea" id="case-current" spellcheck="false" placeholder="当前待处理文本"></textarea>
-          </div>
-          <div class="field">
-            <div class="field-label-row"><span>PriorText · 前文上下文</span><button type="button" class="btn tiny" id="case-paste-prior">粘贴</button></div>
-            <textarea class="code-editor case-textarea tall" id="case-prior" spellcheck="false" placeholder="前文上下文"></textarea>
-          </div>
-          <details class="case-disclosure" id="case-replacement-details" open>
-            <summary><span>ReplacementMap · 可选</span><span class="type-tag" id="case-replacement-type">未设置</span></summary>
-            <textarea class="code-editor" id="case-replacement" spellcheck="false" placeholder="添加替换规则…"></textarea>
-          </details>
-          <details class="case-disclosure" id="case-extra-details">
-            <summary><span>其他变量</span><span class="type-tag" id="case-extra-count">0</span></summary>
-            <div id="case-extra-list" class="extra-list"></div>
+          <section class="field">
+            <div class="field-label-row"><span>输入字段</span><span class="type-tag" id="case-field-count">0</span></div>
+            <div id="case-field-list" class="extra-list"></div>
             <div class="extra-add">
-              <input class="input mono" id="case-extra-key" type="text" placeholder="变量名" autocomplete="off">
-              <textarea class="code-editor extra-value" id="case-extra-value" spellcheck="false" placeholder="JSON 值，例如 &quot;text&quot; 或 { }"></textarea>
-              <button type="button" class="btn tiny" id="case-extra-add-btn">添加变量</button>
+              <input class="input mono" id="case-field-key" type="text" placeholder="字段名" autocomplete="off">
+              <textarea class="code-editor extra-value" id="case-field-value" spellcheck="false" placeholder="字符串内容（可以为空）"></textarea>
+              <button type="button" class="btn tiny" id="case-field-add-btn">添加字段</button>
             </div>
-          </details>
+          </section>
         </div>
         <aside class="case-editor-side">
-          <div class="field">
-            <span>源语言</span>
-            <input class="input mono" id="case-source-language" type="text" autocomplete="off" placeholder="zh-CN">
-          </div>
           <section class="collection-membership">
             <h2>所属集合</h2>
             <div id="case-collections" class="collection-checks"></div>
@@ -401,7 +400,6 @@
           <div class="field-label-row"><span>Case.variables JSON</span><span class="muted small">键顺序会由后端规范化；文本、换行与值类型原样保留</span></div>
           <textarea class="code-editor case-json-editor" id="case-vars-json" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
           <p class="field-error" id="case-json-error" role="alert"></p>
-          <button type="button" class="btn tiny danger-text" id="case-remove-prohibited" hidden>移除禁用字段</button>
         </div>
       </div>
 
@@ -435,14 +433,19 @@
               </div>
             </div>
             <div class="io-target-row">
-              <label class="inline-field"><span>数据格式</span><select class="input select" id="io-input-format"><option value="eve-vocat">Eve / Vocat 变量</option><option value="package">Promptbench 标准包</option></select></label>
+              <label class="inline-field"><span>输入模式</span><select class="input select" id="io-input-format"><option value="variables">按模板导入</option><option value="package">标准包</option></select></label>
               <label class="inline-field"><span>目标集合（追加）</span><select class="input select" id="io-target-collection"></select></label>
+            </div>
+            <div class="io-template-controls" id="io-template-controls">
+              <label class="inline-field"><span>模板</span><select class="input select" id="io-template"></select></label>
+              <span class="muted small" id="io-template-fields" aria-live="polite"></span>
+              <button type="button" class="btn tiny" id="io-copy-example" title="复制空字符串字段；列表或对象请填写实际结构">复制字段 JSON</button>
             </div>
             <div class="io-paste">
               <label for="io-paste-text">粘贴 JSON / JSONL</label>
-              <p class="muted small" id="io-paste-help">CurrentText 和 SourceLanguage 必填；PriorText、ReplacementMap 缺省为空。支持对象、对象数组或每行一个对象；ID 自动生成。</p>
-              <textarea class="code-editor io-paste-area" id="io-paste-text" aria-describedby="io-paste-help" spellcheck="false" placeholder='{"CurrentText":"法治的理念要得到践行。","PriorText":"问渠哪得清如许？为有源头活水来。\n我是一个长期生活在书斋里的人。","ReplacementMap":"","SourceLanguage":"zh-CN"}'></textarea>
-              <button type="button" class="btn tiny" id="io-parse-paste">解析粘贴内容</button>
+              <p class="muted small" id="io-paste-help">未提供的文本变量按空内容渲染。</p>
+              <textarea class="code-editor io-paste-area" id="io-paste-text" aria-describedby="io-paste-help" spellcheck="false" placeholder='{"text":"待处理文本"}'></textarea>
+              <button type="button" class="btn tiny" id="io-parse-paste">检查数据</button>
             </div>
           </section>
 
@@ -459,7 +462,7 @@
 
           <div class="table-wrap io-preview-wrap">
             <table class="data-table io-preview-table">
-              <thead><tr><th scope="col">No</th><th scope="col">SourceLanguage</th><th scope="col">CurrentText</th><th scope="col">PriorText</th><th scope="col">ReplacementMap</th><th scope="col">写入</th></tr></thead>
+              <thead><tr id="io-preview-head"></tr></thead>
               <tbody id="io-preview-body"></tbody>
             </table>
           </div>
@@ -942,20 +945,6 @@
     <button type="button" class="btn" data-close-dialog="metric-ai-dialog">取消</button>
     <button type="button" class="btn primary" id="metric-ai-copy">复制提示词</button>
   </div>
-</dialog>
-<dialog class="modal contract-modal" id="contract-dialog" aria-labelledby="contract-title">
-  <div class="modal-head"><h2 id="contract-title">共享输入契约</h2><button type="button" class="icon-btn" id="contract-close" aria-label="关闭输入契约">✕</button></div>
-  <div class="modal-body">
-    <div class="btn-row"><label class="inline-field"><span>契约</span><select class="input select" id="contract-select" aria-label="选择共享契约"></select></label><button type="button" class="btn tiny" id="contract-new">新建</button><button type="button" class="btn tiny" id="contract-copy">复制为新契约</button><button type="button" class="btn tiny danger-text" id="contract-delete">删除未引用契约</button></div>
-    <label class="field"><span>名称</span><input class="input" id="contract-name"></label>
-    <label class="field"><span>说明</span><textarea class="input" id="contract-description" rows="2"></textarea></label>
-    <label class="field"><span>字段定义（JSON 对象，可嵌套）</span><textarea class="input mono" id="contract-fields" rows="14" spellcheck="false" aria-describedby="contract-schema-help"></textarea></label>
-    <p class="muted small" id="contract-schema-help">字段填写 type（string / number / integer / boolean / object / array）、required、nullable、description。object 用 fields 定义嵌套字段，array 用 items 定义元素。允许额外 Case 字段。TargetLanguageNameMap 由执行配置注入，不可定义为根输入字段。</p>
-    <details><summary>嵌套示例</summary><pre class="mono">{"CurrentText":{"type":"string","required":true,"nullable":false,"description":"已准备好的当前文本"},"Context":{"type":"array","required":false,"nullable":true,"description":"已处理的上下文","items":{"type":"object","required":false,"nullable":false,"description":"上下文项","fields":{"text":{"type":"string","required":true,"nullable":false,"description":"文本"}}}}}</pre></details>
-    <p class="muted small">共享编辑影响所有引用模板的未来使用；历史保持冻结。不兼容的新格式请复制为另一契约。</p>
-    <div id="contract-impact" aria-live="polite"></div><p class="field-error" id="contract-error" role="alert"></p>
-  </div>
-  <div class="modal-foot"><button type="button" class="btn" id="contract-review">检查受影响模板与当前 Cases</button><button type="button" class="btn primary" id="contract-save" disabled>确认影响并保存</button></div>
 </dialog>
 
 <datalist id="model-suggestions"></datalist>
